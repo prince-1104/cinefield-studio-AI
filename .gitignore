@@ -34,3 +34,6 @@ data/
 *.mp3
 *.wav
 *.aac
+
+# Documentation / Notes
+progress.md

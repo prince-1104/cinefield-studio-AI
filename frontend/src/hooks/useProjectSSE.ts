@@ -53,3 +53,4 @@ export function useProjectSSE(
 
   return { project, connected, error, setProject };
 }
+

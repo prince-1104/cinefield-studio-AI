@@ -85,3 +85,4 @@ export function getArtifactUrl(pathOrKey: string): string {
   const clean = pathOrKey.replace(/^.*?artifacts\//, "");
   return `/api/artifacts/${clean}`;
 }
+
