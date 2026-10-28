@@ -30,3 +30,6 @@ dev = [
     "pytest-asyncio>=0.24",
     "httpx>=0.28",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "worker"]
