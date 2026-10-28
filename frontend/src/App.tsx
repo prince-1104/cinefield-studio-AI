@@ -1,25 +1,43 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ProjectDetail } from "./types";
 import { useProjectSSE } from "./hooks/useProjectSSE";
+import { getProject, listProjects } from "./api/client";
+import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
-import { StageNav, WizardStep } from "./components/StageNav";
+import { WizardStep } from "./components/StageNav";
 import { BriefStep } from "./components/BriefStep";
 import { StoryboardStep } from "./components/StoryboardStep";
 import { GenerationStep } from "./components/GenerationStep";
-import { PreviewStep } from "./components/PreviewStep";
+import { VideoEditor } from "./components/Editor/VideoEditor";
+import { RecentProjectsModal } from "./components/RecentProjectsModal";
+import { AlertTriangle, X } from "lucide-react";
 
 export default function App() {
   const [activeProject, setActiveProject] = useState<ProjectDetail | null>(null);
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
   const [maxUnlockedStep, setMaxUnlockedStep] = useState<WizardStep>(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [recentModalOpen, setRecentModalOpen] = useState(false);
+  const [recentCount, setRecentCount] = useState(0);
+
+  // Load project count for sidebar badge
+  const refreshProjectsCount = () => {
+    listProjects()
+      .then((items) => setRecentCount(items.length))
+      .catch((err) => console.warn("Could not list projects count:", err));
+  };
+
+  useEffect(() => {
+    refreshProjectsCount();
+  }, []);
 
   // Hook into live Server-Sent Events for the active project
   const { connected } = useProjectSSE(activeProject?.id || null, (updated) => {
     setActiveProject(updated);
 
     // Auto-unlock steps based on stage
-    if (updated.shots && updated.shots.length === 3) {
+    if (updated.shots && updated.shots.length > 0) {
       setMaxUnlockedStep((prev) => (Math.max(prev, 2) as WizardStep));
     }
     if (
@@ -39,6 +57,7 @@ export default function App() {
     setErrorMessage(null);
     setCurrentStep(2);
     setMaxUnlockedStep(2);
+    refreshProjectsCount();
   };
 
   const handleStoryboardApproved = (project: ProjectDetail) => {
@@ -53,6 +72,7 @@ export default function App() {
     setErrorMessage(null);
     setCurrentStep(4);
     setMaxUnlockedStep(4);
+    refreshProjectsCount();
   };
 
   const handleRestart = () => {
@@ -62,63 +82,122 @@ export default function App() {
     setErrorMessage(null);
   };
 
+  const handleSelectProject = async (projectId: string) => {
+    try {
+      setErrorMessage(null);
+      const project = await getProject(projectId);
+      setActiveProject(project);
+
+      // Determine step from loaded project stage
+      let step: WizardStep = 1;
+      let maxStep: WizardStep = 1;
+
+      if (project.stage === "ASSEMBLED" || project.final_video_path) {
+        step = 4;
+        maxStep = 4;
+      } else if (
+        ["STORYBOARD_APPROVED", "VIDEOS", "NARRATION"].includes(project.stage)
+      ) {
+        step = 3;
+        maxStep = 3;
+      } else if (project.shots && project.shots.length > 0) {
+        step = 2;
+        maxStep = 2;
+      }
+
+      setCurrentStep(step);
+      setMaxUnlockedStep(maxStep);
+    } catch (err: any) {
+      console.error("Failed to load project:", err);
+      setErrorMessage(
+        err.response?.data?.detail || err.message || "Failed to load project"
+      );
+    }
+  };
+
   return (
-    <div className="app-container">
-      <Header
-        stage={activeProject?.stage}
-        liveConnected={connected && Boolean(activeProject)}
+    <div className="studio-shell">
+      {/* Persistent Left Sidebar */}
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onNewProject={handleRestart}
+        onOpenRecent={() => setRecentModalOpen(true)}
+        recentCount={recentCount}
       />
 
-      <StageNav
-        currentStep={currentStep}
-        maxUnlockedStep={maxUnlockedStep}
-        onSelectStep={(s) => setCurrentStep(s)}
+      {/* Main Studio Area */}
+      <div className="studio-main">
+        {/* Top App Bar */}
+        <Header
+          projectName={activeProject?.product_name}
+          stage={activeProject?.stage}
+          liveConnected={connected && Boolean(activeProject)}
+          currentStep={currentStep}
+          maxUnlockedStep={maxUnlockedStep}
+          onSelectStep={(s) => setCurrentStep(s)}
+          onOpenRecent={() => setRecentModalOpen(true)}
+        />
+
+        {/* Central Creative Workspace */}
+        <main className="studio-content">
+          {errorMessage && (
+            <div className="studio-alert-error">
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <AlertTriangle size={16} />
+                <span>{errorMessage}</span>
+              </div>
+              <button
+                onClick={() => setErrorMessage(null)}
+                title="Dismiss error"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
+
+          {currentStep === 1 && (
+            <BriefStep
+              onProjectCreated={handleProjectCreated}
+              onError={setErrorMessage}
+            />
+          )}
+
+          {currentStep === 2 && activeProject && (
+            <StoryboardStep
+              project={activeProject}
+              onApproved={handleStoryboardApproved}
+              onBackToBrief={() => setCurrentStep(1)}
+              onError={setErrorMessage}
+            />
+          )}
+
+          {currentStep === 3 && activeProject && (
+            <GenerationStep
+              project={activeProject}
+              onAssembled={handleAssembled}
+              onViewFinal={() => setCurrentStep(4)}
+              onError={setErrorMessage}
+            />
+          )}
+
+          {currentStep === 4 && activeProject && (
+            <VideoEditor
+              project={activeProject}
+              onBackToProduction={() => setCurrentStep(3)}
+              onError={setErrorMessage}
+            />
+          )}
+        </main>
+      </div>
+
+      {/* Recent Projects Modal */}
+      <RecentProjectsModal
+        isOpen={recentModalOpen}
+        onClose={() => setRecentModalOpen(false)}
+        onSelectProject={handleSelectProject}
+        currentProjectId={activeProject?.id}
       />
-
-      {errorMessage && (
-        <div className="alert-error" style={{ display: "flex", justifyContent: "space-between" }}>
-          <span>⚠️ {errorMessage}</span>
-          <button
-            onClick={() => setErrorMessage(null)}
-            style={{
-              background: "none",
-              border: "none",
-              color: "#fca5a5",
-              cursor: "pointer",
-              fontWeight: 700,
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {currentStep === 1 && (
-        <BriefStep
-          onProjectCreated={handleProjectCreated}
-          onError={setErrorMessage}
-        />
-      )}
-
-      {currentStep === 2 && activeProject && (
-        <StoryboardStep
-          project={activeProject}
-          onApproved={handleStoryboardApproved}
-          onError={setErrorMessage}
-        />
-      )}
-
-      {currentStep === 3 && activeProject && (
-        <GenerationStep
-          project={activeProject}
-          onAssembled={handleAssembled}
-          onError={setErrorMessage}
-        />
-      )}
-
-      {currentStep === 4 && activeProject && (
-        <PreviewStep project={activeProject} onRestart={handleRestart} />
-      )}
     </div>
   );
 }

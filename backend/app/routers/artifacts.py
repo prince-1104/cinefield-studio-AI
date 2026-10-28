@@ -18,7 +18,9 @@ async def get_artifact(file_path: str) -> FileResponse:
     requested_file = (base_dir / file_path).resolve()
 
     # Path traversal protection
-    if not str(requested_file).startswith(str(base_dir)):
+    try:
+        requested_file.relative_to(base_dir)
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: path traversal not allowed",

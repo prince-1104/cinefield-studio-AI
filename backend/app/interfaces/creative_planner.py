@@ -17,7 +17,9 @@ class CreativePlanner(ABC):
         tone: str,
         cta: str,
         product_image_path: str | None = None,
+        target_duration: int = 15,
+        shot_count: int = 3,
+        aspect_ratio: str = "16:9",
     ) -> Storyboard:
-        """Generate a structured script and exactly 3 storyboard shots."""
+        """Generate a structured script and sequence of storyboard shots covering the target duration."""
         pass
-

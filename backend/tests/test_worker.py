@@ -35,6 +35,10 @@ class MockPlanner(CreativePlanner):
         tone: str,
         cta: str,
         product_image_path: str | None = None,
+        target_duration: int = 15,
+        shot_count: int = 3,
+        aspect_ratio: str = "16:9",
+        **kwargs,
     ) -> Storyboard:
         return Storyboard(
             title=f"The Future of {product_name}",

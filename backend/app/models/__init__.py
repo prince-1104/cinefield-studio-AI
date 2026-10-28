@@ -8,6 +8,7 @@ from app.models.base import Base
 from app.models.job import Job, JobStatus, JobType
 from app.models.project import Project, ProjectStage
 from app.models.shot import Shot, ShotStatus
+from app.models.timeline_edit import TimelineEdit
 
 __all__ = [
     "Base",
@@ -18,4 +19,5 @@ __all__ = [
     "ProjectStage",
     "Shot",
     "ShotStatus",
+    "TimelineEdit",
 ]

@@ -4,6 +4,9 @@ import {
   ProjectCreate,
   ProjectDetail,
   ProjectSummary,
+  TimelineData,
+  TimelineEditResponse,
+  TimelineEditSummary,
 } from "../types";
 
 const api = axios.create({
@@ -72,6 +75,38 @@ export async function generateTTS(projectId: string): Promise<JobResponse> {
 
 export async function assembleVideo(projectId: string): Promise<JobResponse> {
   const res = await api.post<JobResponse>(`/projects/${projectId}/assemble`);
+  return res.data;
+}
+
+export async function getTimeline(projectId: string): Promise<TimelineEditResponse> {
+  const res = await api.get<TimelineEditResponse>(`/projects/${projectId}/timeline`);
+  return res.data;
+}
+
+export async function saveTimeline(
+  projectId: string,
+  timelineData: TimelineData
+): Promise<TimelineEditResponse> {
+  const res = await api.put<TimelineEditResponse>(`/projects/${projectId}/timeline`, {
+    timeline_data: timelineData,
+  });
+  return res.data;
+}
+
+export async function getTimelineHistory(
+  projectId: string
+): Promise<TimelineEditSummary[]> {
+  const res = await api.get<TimelineEditSummary[]>(`/projects/${projectId}/timeline/history`);
+  return res.data;
+}
+
+export async function exportTimeline(
+  projectId: string,
+  timelineEditId?: string
+): Promise<JobResponse> {
+  const res = await api.post<JobResponse>(`/projects/${projectId}/timeline/export`, {
+    timeline_edit_id: timelineEditId || null,
+  });
   return res.data;
 }
 

@@ -19,7 +19,7 @@ async def stream_project_events(
     project_id: uuid.UUID,
     request: Request,
 ) -> EventSourceResponse:
-    """Stream real-time status and progress updates for a project via SSE."""
+    """Stream real-time status and live progress updates for a project via SSE."""
 
     # First verify the project exists
     async with async_session_factory() as session:
@@ -45,11 +45,14 @@ async def stream_project_events(
 
                     detail = ProjectDetail.model_validate(project)
 
-                    # Build a lightweight state signature to avoid redundant event traffic
+                    # Build high-fidelity state signature tracking shot progress & pipeline stages
                     signature = (
                         f"{detail.stage}:"
-                        f"{[s.status for s in detail.shots]}:"
-                        f"{[j.status for j in detail.jobs]}:"
+                        f"{detail.progress_percent}:"
+                        f"{detail.current_stage_label}:"
+                        f"{[(s.id, s.status, s.video_path is not None) for s in detail.shots]}:"
+                        f"{[(j.id, j.status) for j in detail.jobs]}:"
+                        f"{detail.narration_path is not None}:"
                         f"{detail.final_video_path is not None}"
                     )
 
@@ -71,7 +74,6 @@ async def stream_project_events(
                 # Connection or query error; break loop gracefully
                 break
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(1.0)
 
     return EventSourceResponse(event_generator())
-

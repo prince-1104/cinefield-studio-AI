@@ -1,4 +1,5 @@
-import type { FC } from "react";
+import { type FC } from "react";
+import { Check, FileText, Sparkles, Video, Sliders } from "lucide-react";
 
 export type WizardStep = 1 | 2 | 3 | 4;
 
@@ -13,34 +14,37 @@ export const StageNav: FC<StageNavProps> = ({
   maxUnlockedStep,
   onSelectStep,
 }) => {
-  const steps: { step: WizardStep; label: string }[] = [
-    { step: 1, label: "1. Brief & Assets" },
-    { step: 2, label: "2. Storyboard Review" },
-    { step: 3, label: "3. Video Generation" },
-    { step: 4, label: "4. Final Advertisement" },
+  const steps: { step: WizardStep; label: string; icon: typeof FileText }[] = [
+    { step: 1, label: "Brief & Assets", icon: FileText },
+    { step: 2, label: "Storyboard Arc", icon: Sparkles },
+    { step: 3, label: "Video Production", icon: Video },
+    { step: 4, label: "Editor & Master", icon: Sliders },
   ];
 
   return (
-    <nav className="step-nav">
-      {steps.map(({ step, label }) => {
+    <div className="workflow-stepper">
+      {steps.map(({ step, label, icon: Icon }) => {
         const isActive = currentStep === step;
         const isCompleted = step < currentStep || (step < maxUnlockedStep && !isActive);
-        const isClickable = step <= maxUnlockedStep;
+        const isUnlocked = step <= maxUnlockedStep;
 
         return (
-          <div
+          <button
             key={step}
-            className={`step-item ${isActive ? "active" : ""} ${
+            className={`stepper-tab ${isActive ? "active" : ""} ${
               isCompleted ? "completed" : ""
-            }`}
-            onClick={() => isClickable && onSelectStep(step)}
-            style={{ cursor: isClickable ? "pointer" : "not-allowed" }}
+            } ${isUnlocked ? "unlocked" : ""}`}
+            onClick={() => isUnlocked && onSelectStep(step)}
+            disabled={!isUnlocked}
+            title={isUnlocked ? `Go to ${label}` : "Complete previous stages first"}
           >
-            <div className="step-circle">{isCompleted ? "✓" : step}</div>
-            <span className="step-label">{label}</span>
-          </div>
+            <span className="stepper-num">
+              {isCompleted ? <Check size={11} strokeWidth={3} /> : <Icon size={11} />}
+            </span>
+            <span>{label}</span>
+          </button>
         );
       })}
-    </nav>
+    </div>
   );
 };

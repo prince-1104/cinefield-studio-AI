@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from app.config import settings
 from app.interfaces.speech_provider import SpeechProvider
@@ -20,20 +20,21 @@ class OpenAISpeechProvider(SpeechProvider):
         model: str | None = None,
         voice: str | None = None,
     ) -> None:
-        self.api_key = api_key or settings.OPENAI_API_KEY
+        raw_key = api_key if api_key is not None else settings.OPENAI_API_KEY
+        self.api_key = raw_key.strip().rstrip(",") if raw_key else ""
         self.model = model or settings.OPENAI_TTS_MODEL
         self.voice = voice or settings.OPENAI_TTS_VOICE
-        self._client: OpenAI | None = None
+        self._client: AsyncOpenAI | None = None
 
     @property
-    def client(self) -> OpenAI:
+    def client(self) -> AsyncOpenAI:
         if not self.api_key:
             raise RuntimeError(
                 "OPENAI_API_KEY is not configured. "
                 "Please configure a valid OpenAI API key in your .env file to generate speech narration."
             )
         if self._client is None:
-            self._client = OpenAI(api_key=self.api_key)
+            self._client = AsyncOpenAI(api_key=self.api_key)
         return self._client
 
     async def synthesize(
@@ -67,19 +68,20 @@ class OpenAISpeechProvider(SpeechProvider):
         if instructions and "mini-tts" in self.model:
             kwargs["instructions"] = instructions
 
-        response = self.client.audio.speech.create(**kwargs)
+        response = await self.client.audio.speech.create(**kwargs)
 
         # Write audio stream to destination file
-        if hasattr(response, "stream_to_file"):
-            response.stream_to_file(str(dest))
+        if hasattr(response, "content") and response.content:
+            dest.write_bytes(response.content)
+        elif hasattr(response, "aread"):
+            dest.write_bytes(await response.aread())
         elif hasattr(response, "read"):
             dest.write_bytes(response.read())
-        elif hasattr(response, "content"):
-            dest.write_bytes(response.content)
+        elif hasattr(response, "stream_to_file"):
+            response.stream_to_file(str(dest))
         else:
-            # Fallback using response iterator
             with open(dest, "wb") as f:
-                for chunk in response.iter_bytes():
+                async for chunk in response.aiter_bytes():
                     f.write(chunk)
 
         logger.info(f"Successfully generated narration audio file at {dest}")

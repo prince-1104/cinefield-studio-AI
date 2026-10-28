@@ -1,5 +1,6 @@
 """Centralised configuration loaded from environment variables."""
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
 
     # --- Google Gemini – text planning ---
     GEMINI_API_KEY: str = ""
-    GEMINI_TEXT_MODEL: str = "gemini-3.5-flash"
+    GEMINI_TEXT_MODEL: str = "gemini-3.8-flash"
 
     # --- Google Gemini – video generation (Interactions API) ---
     GEMINI_VIDEO_MODEL: str = "gemini-omni-1.1-flash"
@@ -31,6 +32,13 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
     OPENAI_TTS_VOICE: str = "coral"
+
+    @field_validator("GEMINI_API_KEY", "OPENAI_API_KEY", mode="before")
+    @classmethod
+    def clean_api_keys(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip().rstrip(",")
+        return v
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

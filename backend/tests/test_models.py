@@ -99,6 +99,10 @@ async def run_data_layer_verification() -> None:
         )
 
 
+async def test_data_layer_models_and_relationships() -> None:
+    await run_data_layer_verification()
+
+
 if __name__ == "__main__":
     asyncio.run(run_data_layer_verification())
 

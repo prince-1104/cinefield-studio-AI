@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine
-from app.routers import artifacts, events, projects
+from app.routers import artifacts, events, projects, timeline
 
 
 @asynccontextmanager
@@ -40,6 +40,7 @@ def create_app() -> FastAPI:
 
     # Register routers
     application.include_router(projects.router)
+    application.include_router(timeline.router)
     application.include_router(events.router)
     application.include_router(artifacts.router)
 
