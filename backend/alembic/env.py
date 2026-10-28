@@ -1,28 +1,39 @@
-"""Alembic environment configuration."""
+"""Alembic environment configuration.
 
+Imports all ORM models via app.models so that Base.metadata is fully
+populated before autogenerate runs.
+"""
+
+import asyncio
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from app.models import Base
+
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Will import Base.metadata once models are created in Phase P1
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
-    context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
     with context.begin_transaction():
         context.run_migrations()
 
 
-def do_run_migrations(connection):
+def do_run_migrations(connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
         context.run_migrations()
@@ -39,8 +50,6 @@ async def run_migrations_online() -> None:
         await connection.run_sync(do_run_migrations)
     await connectable.dispose()
 
-
-import asyncio
 
 if context.is_offline_mode():
     run_migrations_offline()
