@@ -210,3 +210,4 @@ class FFmpegMediaRenderer(MediaRenderer):
 
         logger.info(f"Final advertisement successfully rendered to {dest}")
         return str(dest)
+
