@@ -84,3 +84,4 @@ class OpenAISpeechProvider(SpeechProvider):
 
         logger.info(f"Successfully generated narration audio file at {dest}")
         return str(dest)
+

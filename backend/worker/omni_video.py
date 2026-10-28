@@ -115,3 +115,4 @@ class GeminiOmniVideoGenerator(VideoGenerationProvider):
         dest.write_bytes(video_bytes)
         logger.info(f"Successfully saved video clip to {dest} ({len(video_bytes)} bytes)")
         return str(dest)
+

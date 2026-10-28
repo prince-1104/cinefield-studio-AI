@@ -7,6 +7,7 @@ while persisting stage transitions and error state.
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 import uuid
@@ -20,11 +21,13 @@ from sqlalchemy.orm import selectinload
 from app.config import settings
 from app.database import async_session_factory
 from app.interfaces.creative_planner import CreativePlanner
+from app.interfaces.media_renderer import MediaRenderer
 from app.interfaces.speech_provider import SpeechProvider
 from app.interfaces.video_generator import VideoGenerationProvider
 from app.models.job import Job, JobStatus, JobType
 from app.models.project import Project, ProjectStage
 from app.models.shot import Shot, ShotStatus
+from worker.ffmpeg_renderer import FFmpegMediaRenderer
 from worker.gemini_planner import GeminiPlanner
 from worker.local_store import LocalArtifactStorage
 from worker.omni_video import GeminiOmniVideoGenerator
@@ -45,12 +48,14 @@ class JobRunner:
         planner: CreativePlanner | None = None,
         video_generator: VideoGenerationProvider | None = None,
         speech_provider: SpeechProvider | None = None,
+        media_renderer: MediaRenderer | None = None,
         storage: LocalArtifactStorage | None = None,
         poll_interval_seconds: float = 2.0,
     ) -> None:
         self.planner = planner or GeminiPlanner()
         self.video_generator = video_generator or GeminiOmniVideoGenerator()
         self.speech_provider = speech_provider or OpenAISpeechProvider()
+        self.media_renderer = media_renderer or FFmpegMediaRenderer()
         self.storage = storage or LocalArtifactStorage()
         self.poll_interval = poll_interval_seconds
         self.running = False
@@ -279,9 +284,44 @@ class JobRunner:
         project: Project,
         payload: dict[str, Any],
     ) -> None:
-        """Delegate assembly (fully implemented in Phase P5)."""
-        logger.info(f"Assembly placeholder for project {project.id}")
-        job.result = {"message": "Assembly queued (ready for P5 FFmpeg renderer)"}
+        """Render clips, audio, brand logo, and CTA into a finished MP4 advertisement."""
+        sorted_shots = sorted(project.shots, key=lambda s: s.shot_number)
+
+        if len(sorted_shots) != 3:
+            raise ValueError(f"Cannot assemble: expected 3 shots, found {len(sorted_shots)}")
+
+        for s in sorted_shots:
+            if s.status != ShotStatus.DONE or not s.video_path or not os.path.isfile(s.video_path):
+                raise ValueError(
+                    f"Cannot assemble: shot {s.shot_number} is not DONE or video file is missing"
+                )
+
+        if not project.narration_path or not os.path.isfile(project.narration_path):
+            raise ValueError("Cannot assemble: narration audio has not been generated or is missing")
+
+        clip_paths = [s.video_path for s in sorted_shots]
+
+        final_dir = (
+            Path(settings.ARTIFACT_DIR)
+            / "projects"
+            / str(project.id)
+            / "final"
+        )
+        final_dir.mkdir(parents=True, exist_ok=True)
+        final_path = str(final_dir / "advertisement.mp4")
+
+        rendered_path = await self.media_renderer.render_advertisement(
+            clip_paths=clip_paths,
+            narration_path=project.narration_path,
+            output_path=final_path,
+            music_path=project.music_path,
+            logo_path=project.logo_path,
+            cta_text=project.cta,
+        )
+
+        project.final_video_path = rendered_path
+        project.stage = ProjectStage.ASSEMBLED
+        job.result = {"final_video_path": rendered_path}
 
     async def start(self) -> None:
         """Run the worker polling loop."""
