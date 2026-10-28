@@ -35,3 +35,4 @@ async def get_artifact(file_path: str) -> FileResponse:
         path=str(requested_file),
         media_type=mime_type or "application/octet-stream",
     )
+

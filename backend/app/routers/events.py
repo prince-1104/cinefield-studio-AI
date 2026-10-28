@@ -74,3 +74,4 @@ async def stream_project_events(
             await asyncio.sleep(2)
 
     return EventSourceResponse(event_generator())
+

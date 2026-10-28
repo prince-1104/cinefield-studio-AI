@@ -65,3 +65,4 @@ async def get_next_queued_job(
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
+
