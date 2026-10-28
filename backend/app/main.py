@@ -1,19 +1,21 @@
 """AI Ad Film Studio – FastAPI application."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine
+from app.routers import artifacts, events, projects
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Startup / shutdown lifecycle hook."""
-    # Engine is already created at import time; nothing to initialise here
-    # but the hook is the right place for future startup tasks.
+    # Ensure artifacts directory exists
+    Path(settings.ARTIFACT_DIR).mkdir(parents=True, exist_ok=True)
     yield
     await engine.dispose()
 
@@ -35,6 +37,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Register routers
+    application.include_router(projects.router)
+    application.include_router(events.router)
+    application.include_router(artifacts.router)
 
     @application.get("/api/health")
     async def health() -> dict:
