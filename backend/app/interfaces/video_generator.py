@@ -28,3 +28,4 @@ class VideoGenerationProvider(ABC):
             The output path of the generated video clip.
         """
         pass
+

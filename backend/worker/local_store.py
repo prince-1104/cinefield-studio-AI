@@ -37,3 +37,4 @@ class LocalArtifactStorage(ArtifactStorage):
     async def exists(self, key: str) -> bool:
         """Check whether the file exists on the filesystem."""
         return Path(self.get_local_path(key)).is_file()
+

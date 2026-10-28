@@ -26,3 +26,4 @@ class SpeechProvider(ABC):
             The output path of the generated audio file.
         """
         pass
+

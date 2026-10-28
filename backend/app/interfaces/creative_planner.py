@@ -20,3 +20,4 @@ class CreativePlanner(ABC):
     ) -> Storyboard:
         """Generate a structured script and exactly 3 storyboard shots."""
         pass
+

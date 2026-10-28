@@ -26,3 +26,4 @@ class ArtifactStorage(ABC):
     def get_local_path(self, key: str) -> str:
         """Resolve a local filesystem path for tools that require direct POSIX file paths."""
         pass
+

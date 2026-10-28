@@ -112,3 +112,4 @@ class GeminiPlanner(CreativePlanner):
             shot.shot_number = i
 
         return storyboard
+

@@ -32,3 +32,4 @@ class MediaRenderer(ABC):
             The path to the rendered MP4 file.
         """
         pass
+
