@@ -163,3 +163,4 @@ class AIUsageRecord(UUIDPrimaryKeyMixin, Base):
             f"<AIUsageRecord {self.id} prov={self.provider} op={self.operation} "
             f"est={self.estimated_cost} act={self.actual_cost} status={self.cost_status}>"
         )
+

@@ -107,3 +107,4 @@ def downgrade() -> None:
     op.drop_table('ai_model_pricing')
     op.drop_column('shots', 'completed_at')
     op.drop_column('shots', 'started_at')
+
