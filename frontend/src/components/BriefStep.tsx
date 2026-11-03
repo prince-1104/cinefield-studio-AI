@@ -80,6 +80,8 @@ export const BriefStep: FC<BriefStepProps> = ({
       target_duration: 60,
       shot_count: 8,
       aspect_ratio: "16:9",
+      selected_video_model: "seedance-1-0-pro-250528",
+      selected_video_provider: "seedance",
     });
     setTargetDuration(60);
     setShotCount(8);
@@ -433,7 +435,7 @@ export const BriefStep: FC<BriefStepProps> = ({
                     <div className="asset-meta">
                       <span className="asset-title">Product Visual Reference</span>
                       <span className="asset-hint">
-                        Informs Gemini Omni Flash for high-fidelity product continuity
+                        Informs AI video models (Seedance & Gemini) for high-fidelity product continuity
                       </span>
                       <div className="asset-tags">
                         <span className="asset-format-tag">JPG / PNG / WEBP</span>

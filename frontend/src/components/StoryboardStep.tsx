@@ -178,12 +178,13 @@ export const StoryboardStep: FC<StoryboardStepProps> = ({
                   style={{
                     background: "var(--bg-surface-elevated)",
                     border: "1px solid var(--border-default)",
-                    color: "var(--text-main)",
-                    padding: "0.35rem 0.75rem",
+                    color: "#ffffff",
+                    padding: "0.4rem 0.85rem",
                     borderRadius: "6px",
-                    fontSize: "0.8rem",
+                    fontSize: "0.82rem",
                     fontWeight: 600,
                     outline: "none",
+                    cursor: "pointer",
                   }}
                 >
                   {models.map((m) => (

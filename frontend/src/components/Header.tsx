@@ -26,6 +26,7 @@ export const Header: FC<HeaderProps> = ({
     switch (s) {
       case "ASSEMBLED":
         return "done";
+      case "RENDERING":
       case "VIDEOS":
       case "NARRATION":
       case "SCRIPT":

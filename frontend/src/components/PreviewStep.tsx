@@ -10,6 +10,8 @@ import {
   Film,
   Sparkles,
   CheckCircle2,
+  Activity,
+  AlertCircle,
 } from "lucide-react";
 
 interface PreviewStepProps {
@@ -23,17 +25,33 @@ export const PreviewStep: FC<PreviewStepProps> = ({
   onRestart,
   onBackToProduction,
 }) => {
-  const videoUrl = project.final_video_path
+  const isRendered = Boolean(project.final_video_path) && project.stage === "ASSEMBLED";
+  const isRendering = project.stage === "RENDERING";
+  const isFailed = project.stage === "FAILED";
+
+  const videoUrl = isRendered && project.final_video_path
     ? getArtifactUrl(project.final_video_path)
     : "";
-  const downloadUrl = getDownloadUrl(project.id);
+  const downloadUrl = isRendered ? getDownloadUrl(project.id) : undefined;
 
   const meta = project.video_metadata;
-  const durationText = meta?.duration ? `${meta.duration.toFixed(1)}s (measured)` : `${project.target_duration}s (target)`;
-  const resolutionText = meta ? `${meta.width} × ${meta.height} (${meta.fps} FPS)` : (
-    project.aspect_ratio === "9:16" ? "1080 × 1920 (24 FPS)" : "1920 × 1080 (24 FPS)"
-  );
+  const durationText = meta?.duration
+    ? `${meta.duration.toFixed(1)}s (measured)`
+    : `${project.target_duration}s (target)`;
+  const resolutionText = meta
+    ? `${meta.width} × ${meta.height} (${meta.fps} FPS)`
+    : project.aspect_ratio === "9:16"
+    ? "1080 × 1920 (24 FPS)"
+    : "1920 × 1080 (24 FPS)";
   const shotCount = project.shots ? project.shots.length : project.shot_count;
+
+  const modelDisplayName = project.selected_video_model
+    ? project.selected_video_model
+        .replace("seedance-1-0-pro-250528", "Seedance 1.0 Pro")
+        .replace("seedance-1-0-pro-fast-251015", "Seedance 1.0 Fast")
+        .replace("dreamina-seedance-2-0-260128", "Seedance 2.0")
+        .replace("gemini-omni-1.1-flash", "Gemini Omni Flash")
+    : "Seedance & Gemini Multi-Model";
 
   return (
     <div className="preview-workspace">
@@ -42,10 +60,26 @@ export const PreviewStep: FC<PreviewStepProps> = ({
         <div className="workspace-title-row">
           <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
             <h1 className="workspace-heading">Cinema Master Delivery</h1>
-            <span className="status-pill done" style={{ fontSize: "0.75rem" }}>
-              <CheckCircle2 size={12} />
-              <span>Production Complete · {durationText}</span>
-            </span>
+            {isRendered ? (
+              <span className="status-pill done" style={{ fontSize: "0.75rem" }}>
+                <CheckCircle2 size={12} />
+                <span>Production Complete · {durationText}</span>
+              </span>
+            ) : isRendering ? (
+              <span className="status-pill generating" style={{ fontSize: "0.75rem" }}>
+                <Activity size={12} />
+                <span>Compiling Final Master in FFmpeg...</span>
+              </span>
+            ) : isFailed ? (
+              <span className="status-pill failed" style={{ fontSize: "0.75rem" }}>
+                <AlertCircle size={12} />
+                <span>Assembly Failed</span>
+              </span>
+            ) : (
+              <span className="status-pill pending" style={{ fontSize: "0.75rem" }}>
+                <span>Awaiting Assembly</span>
+              </span>
+            )}
           </div>
 
           <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -70,7 +104,7 @@ export const PreviewStep: FC<PreviewStepProps> = ({
           </div>
         </div>
         <p className="workspace-subheading">
-          Final cinema advertisement for <strong>{project.product_name}</strong> rendered across {shotCount} sequence scenes with Gemini Omni Flash clips, OpenAI narration, dynamic FFmpeg audio ducking, and watermark overlays.
+          Final cinema advertisement for <strong>{project.product_name}</strong> rendered across {shotCount} sequence scenes with {modelDisplayName} clips, OpenAI narration, dynamic FFmpeg audio ducking, and watermark overlays.
         </p>
       </div>
 
@@ -86,10 +120,16 @@ export const PreviewStep: FC<PreviewStepProps> = ({
                 playsInline
                 preload="auto"
               />
+            ) : isRendering ? (
+              <div style={{ padding: "6rem 2rem", color: "var(--text-muted)", textAlign: "center" }}>
+                <div className="pulse-spinner" style={{ margin: "0 auto 1rem auto", width: "36px", height: "36px" }} />
+                <p style={{ color: "#ffffff", fontWeight: 600 }}>Synthesizing cinema master video stream...</p>
+                <p style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.3rem" }}>Compiling timeline clips, voiceover, and soundtrack in FFmpeg</p>
+              </div>
             ) : (
               <div style={{ padding: "6rem 2rem", color: "var(--text-muted)", textAlign: "center" }}>
                 <Film size={40} style={{ opacity: 0.4, marginBottom: "0.75rem" }} />
-                <p>Synthesizing cinema master video stream...</p>
+                <p>Final master video has not been assembled yet.</p>
               </div>
             )}
           </div>
@@ -103,15 +143,27 @@ export const PreviewStep: FC<PreviewStepProps> = ({
             </div>
 
             <div className="theater-actions-bar">
-              <a
-                href={downloadUrl}
-                className="btn-primary-studio"
-                style={{ textDecoration: "none" }}
-                download
-              >
-                <Download size={16} />
-                <span>Download Master MP4</span>
-              </a>
+              {isRendered && downloadUrl ? (
+                <a
+                  href={downloadUrl}
+                  className="btn-primary-studio"
+                  style={{ textDecoration: "none" }}
+                  download
+                >
+                  <Download size={16} />
+                  <span>Download Master MP4</span>
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-secondary-studio"
+                  disabled
+                  style={{ opacity: 0.6, cursor: "not-allowed" }}
+                >
+                  <Download size={16} />
+                  <span>{isRendering ? "Compiling MP4..." : "MP4 Not Ready"}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -139,7 +191,7 @@ export const PreviewStep: FC<PreviewStepProps> = ({
               <Sparkles size={14} />
               <span className="spec-tile-title">Visual Synthesizer</span>
             </div>
-            <span className="spec-tile-value">Gemini Omni Flash</span>
+            <span className="spec-tile-value">{modelDisplayName}</span>
           </div>
 
           <div className="spec-tile">

@@ -21,6 +21,7 @@ import {
   Cpu,
   Play,
   RotateCw,
+  Sparkles,
 } from "lucide-react";
 
 interface GenerationStepProps {
@@ -218,35 +219,27 @@ export const GenerationStep: FC<GenerationStepProps> = ({
         </p>
       </div>
 
-      {/* Model Selection Panel */}
-      <div
-        style={{
-          background: "var(--bg-surface)",
-          border: "1px solid var(--border-subtle)",
-          borderRadius: "var(--radius-lg)",
-          padding: "1.25rem 1.5rem",
-          marginBottom: "1.75rem",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginBottom: "0.75rem" }}>
+      {/* Model Selection Hero Panel */}
+      <div className="model-selection-hero">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-            <div className="asset-icon-circle" style={{ width: "32px", height: "32px" }}>
-              <Cpu size={16} style={{ color: "#8b5cf6" }} />
+            <div className="asset-icon-circle" style={{ width: "34px", height: "34px", backgroundColor: "rgba(124, 58, 237, 0.15)" }}>
+              <Cpu size={18} style={{ color: "#a78bfa" }} />
             </div>
             <div>
-              <div style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text-main)" }}>
-                AI Video Generation Model Selection
+              <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#ffffff" }}>
+                AI Video Generation Model Engine
               </div>
-              <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                Choose the underlying generative video engine and inference parameters
+              <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>
+                Select generative model for multi-shot clip synthesis with temporal consistency
               </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <label style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-muted)" }}>
-              Active Model:
-            </label>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#cbd5e1" }}>
+              Engine Dropdown:
+            </span>
             <select
               value={selectedModelId}
               onChange={(e) => handleModelChange(e.target.value)}
@@ -254,10 +247,10 @@ export const GenerationStep: FC<GenerationStepProps> = ({
               style={{
                 background: "var(--bg-surface-elevated)",
                 border: "1px solid var(--border-default)",
-                color: "var(--text-main)",
-                padding: "0.45rem 1rem",
+                color: "#ffffff",
+                padding: "0.4rem 0.85rem",
                 borderRadius: "6px",
-                fontSize: "0.85rem",
+                fontSize: "0.82rem",
                 fontWeight: 600,
                 outline: "none",
                 cursor: "pointer",
@@ -272,30 +265,44 @@ export const GenerationStep: FC<GenerationStepProps> = ({
           </div>
         </div>
 
+        {/* Quick Model Pill Buttons */}
+        {models.length > 0 && (
+          <div className="model-pill-tabs">
+            {models.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className={`model-pill-btn ${selectedModelId === m.id ? "active" : ""}`}
+                onClick={() => handleModelChange(m.id)}
+                disabled={switchingModel}
+                title={m.description}
+              >
+                <Cpu size={14} style={{ color: selectedModelId === m.id ? "#c4b5fd" : "#94a3b8" }} />
+                <span>{m.name}</span>
+                {m.is_default && (
+                  <span style={{ fontSize: "0.65rem", padding: "0.1rem 0.35rem", borderRadius: "9999px", background: "rgba(139, 92, 246, 0.3)", color: "#ffffff" }}>
+                    Default
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Selected Model Details & Capabilities */}
-        <div
-          style={{
-            background: "var(--bg-surface-elevated)",
-            borderRadius: "8px",
-            padding: "0.85rem 1rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: "0.75rem",
-          }}
-        >
-          <div style={{ maxWidth: "600px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-              <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#ffffff" }}>
+        <div className="model-active-meta-card">
+          <div style={{ maxWidth: "640px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.3rem" }}>
+              <span style={{ fontSize: "0.92rem", fontWeight: 700, color: "#ffffff" }}>
                 {selectedModel.name}
               </span>
               <span
                 style={{
-                  fontSize: "0.68rem",
-                  background: "rgba(139, 92, 246, 0.2)",
-                  color: "#c4b5fd",
-                  padding: "0.15rem 0.4rem",
+                  fontSize: "0.7rem",
+                  background: "rgba(139, 92, 246, 0.25)",
+                  border: "1px solid rgba(139, 92, 246, 0.4)",
+                  color: "#ddd6fe",
+                  padding: "0.15rem 0.5rem",
                   borderRadius: "4px",
                   fontWeight: 600,
                 }}
@@ -303,25 +310,16 @@ export const GenerationStep: FC<GenerationStepProps> = ({
                 {selectedModel.provider_name}
               </span>
             </div>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", margin: 0, lineHeight: 1.4 }}>
+            <p style={{ fontSize: "0.82rem", color: "#cbd5e1", margin: 0, lineHeight: 1.45 }}>
               {selectedModel.description}
             </p>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
             {(selectedModel.capabilities || []).map((cap, i) => (
-              <span
-                key={i}
-                style={{
-                  fontSize: "0.72rem",
-                  background: "rgba(255, 255, 255, 0.05)",
-                  border: "1px solid rgba(255, 255, 255, 0.1)",
-                  color: "var(--text-secondary)",
-                  padding: "0.2rem 0.5rem",
-                  borderRadius: "4px",
-                }}
-              >
-                {cap}
+              <span key={i} className="model-chip-tag">
+                <Sparkles size={11} style={{ color: "#8b5cf6" }} />
+                <span>{cap}</span>
               </span>
             ))}
           </div>
