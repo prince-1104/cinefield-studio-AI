@@ -13,11 +13,11 @@ class AIModelPricingResponse(BaseModel):
     provider: str
     model: str
     billing_unit: str
-    input_price_per_million: Decimal | None = None
-    output_price_per_million: Decimal | None = None
-    cached_input_price_per_million: Decimal | None = None
-    video_price_per_second: Decimal | None = None
-    video_price_per_minute: Decimal | None = None
+    input_price_per_million: float | None = None
+    output_price_per_million: float | None = None
+    cached_input_price_per_million: float | None = None
+    video_price_per_second: float | None = None
+    video_price_per_minute: float | None = None
     effective_from: datetime
     effective_until: datetime | None = None
     currency: str = "USD"
@@ -51,12 +51,12 @@ class AIUsageRecordResponse(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     cached_input_tokens: int | None = None
-    video_duration_seconds: Decimal | None = None
+    video_duration_seconds: float | None = None
     billing_unit: str
-    unit_quantity: Decimal
-    unit_price: Decimal
-    estimated_cost: Decimal
-    actual_cost: Decimal | None = None
+    unit_quantity: float
+    unit_price: float
+    estimated_cost: float
+    actual_cost: float | None = None
     currency: str = "USD"
     cost_status: str
     request_status: str
@@ -155,6 +155,6 @@ class ReconciliationRequest(BaseModel):
 class ReconciliationResponse(BaseModel):
     success: bool
     provider_task_id: str
-    actual_cost: Decimal
+    actual_cost: float
     message: str
 

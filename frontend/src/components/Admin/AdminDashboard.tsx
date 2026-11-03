@@ -39,6 +39,21 @@ interface AdminDashboardProps {
   onBackToStudio: () => void;
 }
 
+// Safe numeric and formatting helpers to guard against nulls, undefined, or string Decimal types
+const num = (v: any, fallback = 0): number => {
+  if (v === null || v === undefined) return fallback;
+  const parsed = typeof v === "number" ? v : parseFloat(v);
+  return isNaN(parsed) ? fallback : parsed;
+};
+
+const fmtCost = (v: any, decimals = 4): string => {
+  return num(v).toFixed(decimals);
+};
+
+const fmtTokens = (v: any): string => {
+  return (num(v) / 1000).toFixed(1);
+};
+
 export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
   // Authentication State
   const [adminKey, setAdminKey] = useState<string>(
@@ -331,12 +346,12 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   <span className="kpi-label">Total AI Spend</span>
                   <DollarSign size={16} style={{ color: "#38bdf8" }} />
                 </div>
-                <div className="kpi-value">${overview.total_spend.toFixed(4)}</div>
+                <div className="kpi-value">${fmtCost(overview.total_spend)}</div>
                 <div className="kpi-breakdown">
-                  <span>Actual: <strong>${overview.actual_spend.toFixed(4)}</strong></span>
-                  <span>Est: <strong>${overview.estimated_spend.toFixed(4)}</strong></span>
-                  {overview.unknown_spend > 0 && (
-                    <span style={{ color: "#f59e0b" }}>Unreconciled: ${overview.unknown_spend.toFixed(4)}</span>
+                  <span>Actual: <strong>${fmtCost(overview.actual_spend)}</strong></span>
+                  <span>Est: <strong>${fmtCost(overview.estimated_spend)}</strong></span>
+                  {num(overview.unknown_spend) > 0 && (
+                    <span style={{ color: "#f59e0b" }}>Unreconciled: ${fmtCost(overview.unknown_spend)}</span>
                   )}
                 </div>
               </div>
@@ -348,11 +363,11 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   <Cpu size={16} style={{ color: "#d97706" }} />
                 </div>
                 <div className="kpi-value">
-                  {(overview.total_tokens / 1000).toFixed(1)}k
+                  {fmtTokens(overview.total_tokens)}k
                 </div>
                 <div className="kpi-breakdown">
-                  <span>In: <strong>{(overview.total_input_tokens / 1000).toFixed(1)}k</strong></span>
-                  <span>Out: <strong>{(overview.total_output_tokens / 1000).toFixed(1)}k</strong></span>
+                  <span>In: <strong>{fmtTokens(overview.total_input_tokens)}k</strong></span>
+                  <span>Out: <strong>{fmtTokens(overview.total_output_tokens)}k</strong></span>
                 </div>
               </div>
 
@@ -362,13 +377,13 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   <span className="kpi-label">Seedance Video Generations</span>
                   <Film size={16} style={{ color: "#8b5cf6" }} />
                 </div>
-                <div className="kpi-value">{overview.total_video_generations} Clips</div>
+                <div className="kpi-value">{num(overview.total_video_generations)} Clips</div>
                 <div className="kpi-breakdown">
-                  <span style={{ color: "#34d399" }}>✓ {overview.successful_generations} Done</span>
-                  {overview.failed_generations > 0 && (
-                    <span style={{ color: "#f87171" }}>✕ {overview.failed_generations} Failed</span>
+                  <span style={{ color: "#34d399" }}>✓ {num(overview.successful_generations)} Done</span>
+                  {num(overview.failed_generations) > 0 && (
+                    <span style={{ color: "#f87171" }}>✕ {num(overview.failed_generations)} Failed</span>
                   )}
-                  <span>{overview.total_video_seconds.toFixed(0)}s Total</span>
+                  <span>{fmtCost(overview.total_video_seconds, 0)}s Total</span>
                 </div>
               </div>
 
@@ -378,9 +393,9 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   <span className="kpi-label">Active AI Projects</span>
                   <Layers size={16} style={{ color: "#10b981" }} />
                 </div>
-                <div className="kpi-value">{overview.total_projects_using_ai}</div>
+                <div className="kpi-value">{num(overview.total_projects_using_ai)}</div>
                 <div className="kpi-breakdown">
-                  <span>{overview.total_requests} Total API Calls Logged</span>
+                  <span>{num(overview.total_requests)} Total API Calls Logged</span>
                 </div>
               </div>
             </div>
@@ -392,32 +407,32 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
           <div className="admin-section">
             <h2 className="admin-section-heading">Provider Spend Breakdown</h2>
             <div className="admin-cards-grid">
-              {providers.map((p) => (
+              {(providers || []).map((p) => (
                 <div key={p.provider} className="provider-summary-card">
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                    <span className="provider-title">{p.provider.toUpperCase()}</span>
-                    <span className="provider-cost-badge">${p.total_cost.toFixed(4)}</span>
+                    <span className="provider-title">{(p.provider || "").toUpperCase()}</span>
+                    <span className="provider-cost-badge">${fmtCost(p.total_cost)}</span>
                   </div>
                   <div className="provider-metric-row">
                     <span>Total API Requests:</span>
-                    <strong>{p.request_count}</strong>
+                    <strong>{num(p.request_count)}</strong>
                   </div>
                   {p.provider === "claude" && (
                     <div className="provider-metric-row">
                       <span>Tokens Processed:</span>
-                      <strong>{((p.input_tokens + p.output_tokens) / 1000).toFixed(1)}k</strong>
+                      <strong>{fmtTokens(num(p.input_tokens) + num(p.output_tokens))}k</strong>
                     </div>
                   )}
                   {p.provider === "seedance" && (
                     <div className="provider-metric-row">
                       <span>Videos Generated:</span>
-                      <strong>{p.video_generation_count} clips</strong>
+                      <strong>{num(p.video_generation_count)} clips</strong>
                     </div>
                   )}
                   <div className="provider-metric-row">
                     <span>Failure Rate:</span>
-                    <strong style={{ color: p.failure_rate > 0 ? "#f87171" : "#34d399" }}>
-                      {p.failure_rate}%
+                    <strong style={{ color: num(p.failure_rate) > 0 ? "#f87171" : "#34d399" }}>
+                      {fmtCost(p.failure_rate, 1)}%
                     </strong>
                   </div>
                 </div>
@@ -446,32 +461,32 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {models.map((m) => (
+                  {(models || []).map((m) => (
                     <tr key={`${m.provider}-${m.model}`}>
                       <td>
                         <span className="table-provider-pill">{m.provider}</span>
                       </td>
                       <td style={{ fontWeight: 600, color: "#f8fafc" }}>{m.model}</td>
-                      <td>{m.total_requests}</td>
+                      <td>{num(m.total_requests)}</td>
                       <td>
-                        {m.video_generation_count > 0
-                          ? `${m.video_generation_count} videos`
-                          : `${((m.input_tokens + m.output_tokens) / 1000).toFixed(1)}k tokens`}
+                        {num(m.video_generation_count) > 0
+                          ? `${num(m.video_generation_count)} videos`
+                          : `${fmtTokens(num(m.input_tokens) + num(m.output_tokens))}k tokens`}
                       </td>
-                      <td style={{ color: "#34d399" }}>${m.actual_cost.toFixed(4)}</td>
-                      <td style={{ color: "#94a3b8" }}>${m.estimated_cost.toFixed(4)}</td>
-                      <td style={{ fontWeight: 700, color: "#38bdf8" }}>${m.total_cost.toFixed(4)}</td>
-                      <td>${m.avg_cost_per_request.toFixed(4)}</td>
+                      <td style={{ color: "#34d399" }}>${fmtCost(m.actual_cost)}</td>
+                      <td style={{ color: "#94a3b8" }}>${fmtCost(m.estimated_cost)}</td>
+                      <td style={{ fontWeight: 700, color: "#38bdf8" }}>${fmtCost(m.total_cost)}</td>
+                      <td>${fmtCost(m.avg_cost_per_request)}</td>
                       <td>
                         <span
-                          className={`table-status-tag ${m.failure_rate > 0 ? "failed" : "success"}`}
+                          className={`table-status-tag ${num(m.failure_rate) > 0 ? "failed" : "success"}`}
                         >
-                          {m.failure_rate}%
+                          {fmtCost(m.failure_rate, 1)}%
                         </span>
                       </td>
                     </tr>
                   ))}
-                  {models.length === 0 && (
+                  {(!models || models.length === 0) && (
                     <tr>
                       <td colSpan={9} style={{ textAlign: "center", color: "#64748b", padding: "2rem" }}>
                         No model usage recorded for this timeframe.
@@ -504,25 +519,25 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {projects.map((proj) => (
+                  {(projects || []).map((proj) => (
                     <tr key={proj.project_id}>
                       <td style={{ fontWeight: 600, color: "#f8fafc" }}>
                         <div>{proj.project_name}</div>
                         <span style={{ fontSize: "0.68rem", color: "#64748b", fontFamily: "monospace" }}>
-                          {proj.project_id.slice(0, 8)}...
+                          {(proj.project_id || "").slice(0, 8)}...
                         </span>
                       </td>
                       <td>{proj.owner}</td>
-                      <td>{proj.total_requests}</td>
+                      <td>{num(proj.total_requests)}</td>
                       <td>
-                        {((proj.claude_input_tokens + proj.claude_output_tokens) / 1000).toFixed(1)}k
+                        {fmtTokens(num(proj.claude_input_tokens) + num(proj.claude_output_tokens))}k
                       </td>
                       <td>
-                        {proj.video_generation_count} ({proj.successful_videos} ok / {proj.failed_videos} fail)
+                        {num(proj.video_generation_count)} ({num(proj.successful_videos)} ok / {num(proj.failed_videos)} fail)
                       </td>
-                      <td style={{ color: "#34d399" }}>${proj.actual_spend.toFixed(4)}</td>
-                      <td style={{ color: "#94a3b8" }}>${proj.estimated_spend.toFixed(4)}</td>
-                      <td style={{ fontWeight: 700, color: "#38bdf8" }}>${proj.total_spend.toFixed(4)}</td>
+                      <td style={{ color: "#34d399" }}>${fmtCost(proj.actual_spend)}</td>
+                      <td style={{ color: "#94a3b8" }}>${fmtCost(proj.estimated_spend)}</td>
+                      <td style={{ fontWeight: 700, color: "#38bdf8" }}>${fmtCost(proj.total_spend)}</td>
                       <td>
                         <button
                           type="button"
@@ -535,7 +550,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                       </td>
                     </tr>
                   ))}
-                  {projects.length === 0 && (
+                  {(!projects || projects.length === 0) && (
                     <tr>
                       <td colSpan={9} style={{ textAlign: "center", color: "#64748b", padding: "2rem" }}>
                         No projects have recorded AI spend in this timeframe.
@@ -689,14 +704,14 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                         </span>
                       </td>
                       <td style={{ fontWeight: 700, color: "#38bdf8" }}>
-                        ${(item.actual_cost != null ? item.actual_cost : item.estimated_cost).toFixed(5)}
+                        ${fmtCost(item.actual_cost != null ? item.actual_cost : item.estimated_cost, 5)}
                       </td>
                       <td style={{ fontSize: "0.7rem", fontFamily: "monospace", color: "#64748b" }}>
                         {item.provider_task_id || item.provider_request_id || "—"}
                       </td>
                     </tr>
                   ))}
-                  {ledgerItems.length === 0 && (
+                  {(!ledgerItems || ledgerItems.length === 0) && (
                     <tr>
                       <td colSpan={9} style={{ textAlign: "center", color: "#64748b", padding: "2rem" }}>
                         No records match the current filters.
@@ -767,25 +782,25 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                 <div className="admin-kpi-grid" style={{ marginBottom: "1.25rem" }}>
                   <div className="admin-kpi-card highlight">
                     <span className="kpi-label">Total Project AI Spend</span>
-                    <div className="kpi-value">${projectDetail.total_spend.toFixed(4)}</div>
+                    <div className="kpi-value">${fmtCost(projectDetail.total_spend)}</div>
                   </div>
                   <div className="admin-kpi-card">
                     <span className="kpi-label">Claude Creative Planning</span>
-                    <div className="kpi-value">${projectDetail.claude_spend.toFixed(4)}</div>
+                    <div className="kpi-value">${fmtCost(projectDetail.claude_spend)}</div>
                     <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
-                      {projectDetail.claude_tokens.total} Tokens
+                      {num(projectDetail.claude_tokens?.total)} Tokens
                     </span>
                   </div>
                   <div className="admin-kpi-card">
                     <span className="kpi-label">Seedance Video Synthesis</span>
-                    <div className="kpi-value">${projectDetail.seedance_spend.toFixed(4)}</div>
+                    <div className="kpi-value">${fmtCost(projectDetail.seedance_spend)}</div>
                     <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
-                      {projectDetail.video_generations_count} Video Clips
+                      {num(projectDetail.video_generations_count)} Video Clips
                     </span>
                   </div>
                   <div className="admin-kpi-card">
                     <span className="kpi-label">Avg Cost / Finished Shot</span>
-                    <div className="kpi-value">${projectDetail.cost_per_shot.toFixed(4)}</div>
+                    <div className="kpi-value">${fmtCost(projectDetail.cost_per_shot)}</div>
                   </div>
                 </div>
 
@@ -794,13 +809,13 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   Shot-by-Shot AI Cost Allocation
                 </h4>
                 <div className="shot-cost-grid">
-                  {Object.entries(projectDetail.shot_costs).map(([shotId, cost], idx) => (
+                  {Object.entries(projectDetail.shot_costs || {}).map(([shotId, cost], idx) => (
                     <div key={shotId} className="shot-cost-pill">
                       <span>Shot #{idx + 1}:</span>
-                      <strong>${cost.toFixed(4)}</strong>
+                      <strong>${fmtCost(cost)}</strong>
                     </div>
                   ))}
-                  {Object.keys(projectDetail.shot_costs).length === 0 && (
+                  {Object.keys(projectDetail.shot_costs || {}).length === 0 && (
                     <span style={{ color: "#64748b", fontSize: "0.8rem" }}>
                       No per-shot records allocated.
                     </span>

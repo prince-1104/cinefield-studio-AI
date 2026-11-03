@@ -3468,6 +3468,8 @@ button, input, textarea, select {
    ========================================================================== */
 
 .admin-shell {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   min-height: 100vh;
   background: var(--bg-canvas, #09090b);
