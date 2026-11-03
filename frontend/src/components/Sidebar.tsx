@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  TrendingUp,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -14,6 +15,7 @@ interface SidebarProps {
   onToggleCollapse: () => void;
   onNewProject: () => void;
   onOpenRecent: () => void;
+  onOpenAdmin: () => void;
   recentCount: number;
 }
 
@@ -22,6 +24,7 @@ export const Sidebar: FC<SidebarProps> = ({
   onToggleCollapse,
   onNewProject,
   onOpenRecent,
+  onOpenAdmin,
   recentCount,
 }) => {
   return (
@@ -84,6 +87,15 @@ export const Sidebar: FC<SidebarProps> = ({
               {recentCount > 0 && <span className="nav-count">{recentCount}</span>}
             </>
           )}
+        </button>
+
+        <button
+          className="sidebar-nav-item"
+          onClick={onOpenAdmin}
+          title="AI Cost Analytics Admin"
+        >
+          <TrendingUp size={16} style={{ color: "#38bdf8" }} />
+          {!collapsed && <span>AI Cost & Ledger</span>}
         </button>
       </nav>
 

@@ -6,16 +6,24 @@ export type ProjectStage =
   | "NARRATION"
   | "RENDERING"
   | "ASSEMBLED"
-  | "FAILED";
+  | "FAILED"
+  | "ASSEMBLY_QUEUED"
+  | "ASSEMBLING"
+  | "ASSEMBLY_FAILED";
 
 export type ShotStatus =
+  | "QUEUED"
   | "PENDING"
+  | "CLAIMED"
   | "SUBMITTED"
   | "GENERATING"
   | "DOWNLOADING"
   | "VALIDATING"
+  | "COMPLETED"
   | "DONE"
-  | "FAILED";
+  | "FAILED"
+  | "RETRYING"
+  | "CANCELLED";
 
 export type JobStatus = "QUEUED" | "RUNNING" | "DONE" | "FAILED";
 
@@ -61,6 +69,8 @@ export interface ShotResponse {
   status: ShotStatus;
   error_message: string | null;
   retry_count: number;
+  started_at?: string | null;
+  completed_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -293,4 +303,130 @@ export interface ImportAssetResponse {
   size: number;
   content_type: string;
 }
+
+export interface GenerationProgressEvent {
+  event_type: string;
+  project_id: string;
+  shot_id?: string | null;
+  shot_number?: number | null;
+  job_id?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  status: string;
+  previous_status?: string | null;
+  error?: string | null;
+  video_path?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  progress?: Record<string, any>;
+  timestamp: string;
+}
+
+export interface OverviewMetrics {
+  total_spend: number;
+  actual_spend: number;
+  estimated_spend: number;
+  unknown_spend: number;
+  total_requests: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  total_video_generations: number;
+  successful_generations: number;
+  failed_generations: number;
+  total_video_seconds: number;
+  total_projects_using_ai: number;
+}
+
+export interface ProviderMetric {
+  provider: string;
+  request_count: number;
+  total_cost: number;
+  input_tokens: number;
+  output_tokens: number;
+  video_generation_count: number;
+  failure_rate: number;
+}
+
+export interface ModelMetric {
+  provider: string;
+  model: string;
+  total_requests: number;
+  actual_cost: number;
+  estimated_cost: number;
+  total_cost: number;
+  avg_cost_per_request: number;
+  input_tokens: number;
+  output_tokens: number;
+  video_generation_count: number;
+  failure_rate: number;
+}
+
+export interface ProjectCostMetric {
+  project_id: string;
+  project_name: string;
+  owner: string;
+  total_requests: number;
+  claude_model: string;
+  claude_input_tokens: number;
+  claude_output_tokens: number;
+  seedance_model: string;
+  video_generation_count: number;
+  successful_videos: number;
+  failed_videos: number;
+  actual_spend: number;
+  estimated_spend: number;
+  total_spend: number;
+}
+
+export interface ProjectDetailMetrics {
+  project_id: string;
+  project_name: string;
+  total_spend: number;
+  claude_spend: number;
+  seedance_spend: number;
+  retry_spend: number;
+  failed_spend: number;
+  cost_per_video: number;
+  cost_per_shot: number;
+  claude_tokens: { input: number; output: number; total: number };
+  video_generations_count: number;
+  shot_costs: Record<string, number>;
+  records_count: number;
+}
+
+export interface AIUsageRecord {
+  id: string;
+  project_id?: string | null;
+  shot_id?: string | null;
+  job_id?: string | null;
+  provider: string;
+  model: string;
+  operation: string;
+  provider_request_id?: string | null;
+  provider_task_id?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cached_input_tokens?: number | null;
+  video_duration_seconds?: number | null;
+  billing_unit: string;
+  unit_quantity: number;
+  unit_price: number;
+  estimated_cost: number;
+  actual_cost?: number | null;
+  currency: string;
+  cost_status: string;
+  request_status: string;
+  error_code?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface PaginatedUsage {
+  items: AIUsageRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 

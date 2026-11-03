@@ -53,14 +53,17 @@ def update_project_progress(project: Project) -> None:
         calculated = 20.0 + shots_progress + narration_progress
         project.progress_percent = round(min(calculated, 85.0), 1)
         project.current_stage_label = f"Synthesizing Media ({done_shots}/{total_shots} Clips Ready)"
-    elif project.stage == ProjectStage.RENDERING:
-        project.progress_percent = 90.0
-        project.current_stage_label = "Rendering 1080p Cinema Master in FFmpeg"
+    elif project.stage == ProjectStage.ASSEMBLY_QUEUED:
+        project.progress_percent = 88.0
+        project.current_stage_label = "Queued for FFmpeg Multi-Track Assembly"
+    elif project.stage in (ProjectStage.ASSEMBLING, ProjectStage.RENDERING):
+        project.progress_percent = 92.0
+        project.current_stage_label = "Assembling Video Tracks & Audio in FFmpeg"
     elif project.stage == ProjectStage.ASSEMBLED:
         project.progress_percent = 100.0
         project.current_stage_label = "Cinema Master Delivered & Verified"
-    elif project.stage == ProjectStage.FAILED:
-        project.current_stage_label = "Production Interrupted"
+    elif project.stage in (ProjectStage.FAILED, ProjectStage.ASSEMBLY_FAILED):
+        project.current_stage_label = "Assembly / Production Interrupted"
 
 
 async def create_project(
@@ -305,7 +308,9 @@ async def generate_shot_video(
 
     shot.model = chosen_model
     shot.provider = chosen_provider
-    shot.status = ShotStatus.PENDING
+    shot.status = ShotStatus.RETRYING if shot.retry_count > 0 else ShotStatus.QUEUED
+    shot.started_at = None
+    shot.completed_at = None
     shot.error_message = None
     shot.provider_job_id = None
     shot.provider_status = None
@@ -370,7 +375,9 @@ async def approve_storyboard(
             jobs.append(active_job)
             continue
 
-        shot.status = ShotStatus.PENDING
+        shot.status = ShotStatus.QUEUED
+        shot.started_at = None
+        shot.completed_at = None
         shot.error_message = None
         shot.model = project.selected_video_model
         shot.provider = project.selected_video_provider
@@ -478,7 +485,8 @@ async def request_assembly(
             detail=f"Project {project_id} not found",
         )
 
-    project.stage = ProjectStage.RENDERING
+    project.stage = ProjectStage.ASSEMBLY_QUEUED
+    project.current_stage_label = "Queued for FFmpeg video assembly..."
     update_project_progress(project)
     await session.flush()
 

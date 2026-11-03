@@ -10,9 +10,13 @@ import { StoryboardStep } from "./components/StoryboardStep";
 import { GenerationStep } from "./components/GenerationStep";
 import { VideoEditor } from "./components/Editor/VideoEditor";
 import { RecentProjectsModal } from "./components/RecentProjectsModal";
+import { AdminDashboard } from "./components/Admin/AdminDashboard";
 import { AlertTriangle, X } from "lucide-react";
 
 export default function App() {
+  const [viewMode, setViewMode] = useState<"studio" | "admin">(
+    window.location.pathname.startsWith("/admin") ? "admin" : "studio"
+  );
   const [activeProject, setActiveProject] = useState<ProjectDetail | null>(null);
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
   const [maxUnlockedStep, setMaxUnlockedStep] = useState<WizardStep>(1);
@@ -20,6 +24,15 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [recentModalOpen, setRecentModalOpen] = useState(false);
   const [recentCount, setRecentCount] = useState(0);
+
+  // Sync browser back/forward buttons with admin route
+  useEffect(() => {
+    const handlePopState = () => {
+      setViewMode(window.location.pathname.startsWith("/admin") ? "admin" : "studio");
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   // Load project count for sidebar badge
   const refreshProjectsCount = () => {
@@ -33,7 +46,7 @@ export default function App() {
   }, []);
 
   // Hook into live Server-Sent Events for the active project
-  const { connected } = useProjectSSE(activeProject?.id || null, (updated) => {
+  const { connected, recentEvents } = useProjectSSE(activeProject?.id || null, (updated) => {
     setActiveProject(updated);
 
     // Auto-unlock steps based on stage
@@ -121,81 +134,107 @@ export default function App() {
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-        onNewProject={handleRestart}
+        onNewProject={() => {
+          if (viewMode === "admin") {
+            window.history.pushState({}, "", "/");
+            setViewMode("studio");
+          }
+          handleRestart();
+        }}
         onOpenRecent={() => setRecentModalOpen(true)}
+        onOpenAdmin={() => {
+          window.history.pushState({}, "", "/admin");
+          setViewMode("admin");
+        }}
         recentCount={recentCount}
       />
 
-      {/* Main Studio Area */}
-      <div className="studio-main">
-        {/* Top App Bar */}
-        <Header
-          projectName={activeProject?.product_name}
-          stage={activeProject?.stage}
-          liveConnected={connected && Boolean(activeProject)}
-          currentStep={currentStep}
-          maxUnlockedStep={maxUnlockedStep}
-          onSelectStep={(s) => setCurrentStep(s)}
-          onOpenRecent={() => setRecentModalOpen(true)}
+      {/* Main Content Area: Studio or Admin Dashboard */}
+      {viewMode === "admin" ? (
+        <AdminDashboard
+          onBackToStudio={() => {
+            window.history.pushState({}, "", "/");
+            setViewMode("studio");
+          }}
         />
+      ) : (
+        <div className="studio-main">
+          {/* Top App Bar */}
+          <Header
+            projectName={activeProject?.product_name}
+            stage={activeProject?.stage}
+            liveConnected={connected && Boolean(activeProject)}
+            currentStep={currentStep}
+            maxUnlockedStep={maxUnlockedStep}
+            onSelectStep={(s) => setCurrentStep(s)}
+            onOpenRecent={() => setRecentModalOpen(true)}
+          />
 
-        {/* Central Creative Workspace */}
-        <main className="studio-content">
-          {errorMessage && (
-            <div className="studio-alert-error">
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <AlertTriangle size={16} />
-                <span>{errorMessage}</span>
+          {/* Central Creative Workspace */}
+          <main className="studio-content">
+            {errorMessage && (
+              <div className="studio-alert-error">
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <AlertTriangle size={16} />
+                  <span>{errorMessage}</span>
+                </div>
+                <button
+                  onClick={() => setErrorMessage(null)}
+                  title="Dismiss error"
+                >
+                  <X size={16} />
+                </button>
               </div>
-              <button
-                onClick={() => setErrorMessage(null)}
-                title="Dismiss error"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          )}
+            )}
 
-          {currentStep === 1 && (
-            <BriefStep
-              onProjectCreated={handleProjectCreated}
-              onError={setErrorMessage}
-            />
-          )}
+            {currentStep === 1 && (
+              <BriefStep
+                onProjectCreated={handleProjectCreated}
+                onError={setErrorMessage}
+              />
+            )}
 
-          {currentStep === 2 && activeProject && (
-            <StoryboardStep
-              project={activeProject}
-              onApproved={handleStoryboardApproved}
-              onBackToBrief={() => setCurrentStep(1)}
-              onError={setErrorMessage}
-            />
-          )}
+            {currentStep === 2 && activeProject && (
+              <StoryboardStep
+                project={activeProject}
+                onApproved={handleStoryboardApproved}
+                onBackToBrief={() => setCurrentStep(1)}
+                onError={setErrorMessage}
+              />
+            )}
 
-          {currentStep === 3 && activeProject && (
-            <GenerationStep
-              project={activeProject}
-              onAssembled={handleAssembled}
-              onViewFinal={() => setCurrentStep(4)}
-              onError={setErrorMessage}
-            />
-          )}
+            {currentStep === 3 && activeProject && (
+              <GenerationStep
+                project={activeProject}
+                liveEvents={recentEvents}
+                onAssembled={handleAssembled}
+                onViewFinal={() => setCurrentStep(4)}
+                onError={setErrorMessage}
+              />
+            )}
 
-          {currentStep === 4 && activeProject && (
-            <VideoEditor
-              project={activeProject}
-              onBackToProduction={() => setCurrentStep(3)}
-              onError={setErrorMessage}
-            />
-          )}
-        </main>
-      </div>
+            {currentStep === 4 && activeProject && (
+              <VideoEditor
+                project={activeProject}
+                onBackToProduction={() => setCurrentStep(3)}
+                onError={setErrorMessage}
+              />
+            )}
+          </main>
+        </div>
+      )}
 
       {/* Recent Projects Modal */}
       <RecentProjectsModal
         isOpen={recentModalOpen}
         onClose={() => setRecentModalOpen(false)}
-        onSelectProject={handleSelectProject}
+        onSelectProject={(id) => {
+          if (viewMode === "admin") {
+            window.history.pushState({}, "", "/");
+            setViewMode("studio");
+          }
+          handleSelectProject(id);
+        }}
         currentProjectId={activeProject?.id}
       />
     </div>

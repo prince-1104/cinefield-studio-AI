@@ -1,7 +1,9 @@
-"""Server-Sent Events (SSE) router for real-time project progress streaming."""
+"""Server-Sent Events (SSE) router for real-time project progress and shot event streaming."""
 
 import asyncio
+import json
 import uuid
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -32,6 +34,8 @@ async def stream_project_events(
 
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
         last_signature: str | None = None
+        last_shot_states: dict[str, str] = {}
+        last_stage: str | None = None
 
         while True:
             if await request.is_disconnected():
@@ -44,6 +48,64 @@ async def stream_project_events(
                         break
 
                     detail = ProjectDetail.model_validate(project)
+                    now_iso = datetime.now(timezone.utc).isoformat()
+
+                    # Check for stage change event
+                    current_stage_str = str(detail.stage)
+                    if last_stage is not None and current_stage_str != last_stage:
+                        stage_event = {
+                            "event_type": "STAGE_TRANSITION",
+                            "project_id": str(project_id),
+                            "stage": current_stage_str,
+                            "stage_label": detail.current_stage_label or current_stage_str,
+                            "progress_percent": detail.progress_percent,
+                            "timestamp": now_iso,
+                        }
+                        yield {
+                            "event": "generation_progress",
+                            "data": json.dumps(stage_event),
+                        }
+                    last_stage = current_stage_str
+
+                    # Check for individual shot state transitions
+                    for shot in detail.shots:
+                        shot_key = str(shot.id)
+                        shot_status_str = str(shot.status)
+                        prev_status = last_shot_states.get(shot_key)
+
+                        if prev_status is not None and prev_status != shot_status_str:
+                            # Match relevant job if exists
+                            matched_job = next(
+                                (j for j in detail.jobs if j.payload and j.payload.get("shot_id") == shot_key),
+                                None,
+                            )
+                            shot_event = {
+                                "event_type": "SHOT_UPDATE",
+                                "project_id": str(project_id),
+                                "shot_id": shot_key,
+                                "shot_number": shot.shot_number,
+                                "job_id": str(matched_job.id) if matched_job else None,
+                                "provider": shot.provider or detail.selected_video_provider,
+                                "model": shot.model or detail.selected_video_model,
+                                "status": shot_status_str,
+                                "previous_status": prev_status,
+                                "error": shot.error_message,
+                                "video_path": shot.video_path,
+                                "started_at": shot.started_at.isoformat() if shot.started_at else None,
+                                "completed_at": shot.completed_at.isoformat() if shot.completed_at else None,
+                                "progress": {
+                                    "shot_number": shot.shot_number,
+                                    "status": shot_status_str,
+                                    "provider_status": shot.provider_status,
+                                },
+                                "timestamp": now_iso,
+                            }
+                            yield {
+                                "event": "generation_progress",
+                                "data": json.dumps(shot_event),
+                            }
+
+                        last_shot_states[shot_key] = shot_status_str
 
                     # Build high-fidelity state signature tracking shot progress & pipeline stages
                     signature = (
@@ -67,7 +129,7 @@ async def stream_project_events(
                         # Send periodic heartbeat so client connection stays alive
                         yield {
                             "event": "ping",
-                            "data": "{}",
+                            "data": json.dumps({"timestamp": now_iso}),
                         }
 
             except Exception:

@@ -7,8 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import engine
-from app.routers import ai_creative, artifacts, events, projects, timeline
+from app.database import engine, async_session_factory
+from app.routers import admin, ai_creative, artifacts, events, projects, timeline
+from app.services.ai_usage_service import seed_default_pricing
 
 
 @asynccontextmanager
@@ -16,6 +17,11 @@ async def lifespan(application: FastAPI):
     """Startup / shutdown lifecycle hook."""
     # Ensure artifacts directory exists
     Path(settings.ARTIFACT_DIR).mkdir(parents=True, exist_ok=True)
+    async with async_session_factory() as session:
+        try:
+            await seed_default_pricing(session)
+        except Exception:
+            pass
     yield
     await engine.dispose()
 
@@ -44,6 +50,7 @@ def create_app() -> FastAPI:
     application.include_router(events.router)
     application.include_router(artifacts.router)
     application.include_router(ai_creative.router)
+    application.include_router(admin.router)
 
     @application.get("/api/health")
     async def health() -> dict:

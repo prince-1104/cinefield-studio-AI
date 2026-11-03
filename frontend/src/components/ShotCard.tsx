@@ -39,14 +39,20 @@ export const ShotCard: FC<ShotCardProps> = ({
   const getStatusClass = () => {
     switch (shot.status) {
       case "DONE":
+      case "COMPLETED":
         return "done";
+      case "CLAIMED":
+      case "SUBMITTED":
       case "GENERATING":
       case "DOWNLOADING":
       case "VALIDATING":
-      case "SUBMITTED":
         return "generating";
+      case "RETRYING":
+        return "retrying";
       case "FAILED":
         return "failed";
+      case "QUEUED":
+        return "queued";
       default:
         return "pending";
     }
@@ -55,7 +61,12 @@ export const ShotCard: FC<ShotCardProps> = ({
   const getStatusLabel = () => {
     switch (shot.status) {
       case "DONE":
+      case "COMPLETED":
         return "✓ Done";
+      case "QUEUED":
+        return "Queued";
+      case "CLAIMED":
+        return "Claimed";
       case "SUBMITTED":
         return "Submitted";
       case "GENERATING":
@@ -64,6 +75,8 @@ export const ShotCard: FC<ShotCardProps> = ({
         return "Downloading";
       case "VALIDATING":
         return "Validating";
+      case "RETRYING":
+        return "Retrying";
       case "FAILED":
         return "Failed";
       default:
@@ -109,9 +122,17 @@ export const ShotCard: FC<ShotCardProps> = ({
     <div className="shot-production-card">
       {/* Header */}
       <div className="shot-card-header">
-        <div className="shot-role-pill">
-          <Camera size={13} style={{ color: "#8b5cf6" }} />
-          <span>Shot #{shot.shot_number}</span>
+        <div>
+          <div className="shot-role-pill">
+            <Camera size={13} style={{ color: "#8b5cf6" }} />
+            <span>Shot #{shot.shot_number}</span>
+          </div>
+          {shot.started_at && (
+            <div style={{ fontSize: "0.66rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+              Started: {new Date(shot.started_at).toLocaleTimeString()}
+              {shot.completed_at && ` · Done: ${new Date(shot.completed_at).toLocaleTimeString()}`}
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span className="shot-timing-tag" title="Timeline window">

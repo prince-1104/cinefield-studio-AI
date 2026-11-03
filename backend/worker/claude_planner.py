@@ -188,6 +188,31 @@ class ClaudePlanner(CreativePlanner):
             resp = await client.post(url, headers=headers, json=body)
             resp.raise_for_status()
             data = resp.json()
+
+            # Record Claude storyboard planning usage
+            usage = data.get("usage", {})
+            req_id = data.get("id")
+            in_tok = usage.get("input_tokens", 0)
+            out_tok = usage.get("output_tokens", 0)
+            cached_tok = usage.get("cache_creation_input_tokens", 0) + usage.get("cache_read_input_tokens", 0)
+
+            try:
+                from app.database import async_session_factory
+                from app.services.ai_usage_service import AIUsageService
+                async with async_session_factory() as session:
+                    await AIUsageService.record_claude_usage(
+                        session=session,
+                        model=self.model,
+                        operation="storyboard_plan",
+                        input_tokens=in_tok,
+                        output_tokens=out_tok,
+                        cached_tokens=cached_tok,
+                        provider_request_id=req_id,
+                    )
+                    await session.commit()
+            except Exception as log_err:
+                logger.warning(f"Could not record Claude storyboard usage: {log_err}")
+
             for block in data.get("content", []):
                 if block.get("type") == "tool_use" and block.get("name") == "create_cinematic_storyboard":
                     return block.get("input", {})

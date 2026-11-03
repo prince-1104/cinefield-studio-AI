@@ -13,6 +13,19 @@ from app.schemas.creative_ai import (
     WebsiteAnalysisResult,
     WebsiteAssetCandidate,
 )
+from app.schemas.ai_usage import (
+    AIModelPricingCreate,
+    AIModelPricingResponse,
+    AIUsageRecordResponse,
+    ModelMetricsResponse,
+    OverviewMetricsResponse,
+    PaginatedUsageResponse,
+    ProjectCostMetricsResponse,
+    ProjectDetailMetricsResponse,
+    ProviderMetricsResponse,
+    ReconciliationRequest,
+    ReconciliationResponse,
+)
 
 __all__ = [
     "JobResponse",
@@ -29,4 +42,15 @@ __all__ = [
     "WebsiteAnalysisRequest",
     "WebsiteAnalysisResult",
     "WebsiteAssetCandidate",
+    "AIModelPricingCreate",
+    "AIModelPricingResponse",
+    "AIUsageRecordResponse",
+    "ModelMetricsResponse",
+    "OverviewMetricsResponse",
+    "PaginatedUsageResponse",
+    "ProjectCostMetricsResponse",
+    "ProjectDetailMetricsResponse",
+    "ProviderMetricsResponse",
+    "ReconciliationRequest",
+    "ReconciliationResponse",
 ]

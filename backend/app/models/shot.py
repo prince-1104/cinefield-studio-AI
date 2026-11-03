@@ -2,8 +2,9 @@
 
 import enum
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,12 +15,17 @@ class ShotStatus(str, enum.Enum):
     """Detailed per-shot generation status."""
 
     PENDING = "PENDING"
+    QUEUED = "QUEUED"
+    CLAIMED = "CLAIMED"
     SUBMITTED = "SUBMITTED"
     GENERATING = "GENERATING"
     DOWNLOADING = "DOWNLOADING"
     VALIDATING = "VALIDATING"
+    COMPLETED = "COMPLETED"
     DONE = "DONE"
     FAILED = "FAILED"
+    RETRYING = "RETRYING"
+    CANCELLED = "CANCELLED"
 
 
 class Shot(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -65,6 +71,13 @@ class Shot(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="shots")

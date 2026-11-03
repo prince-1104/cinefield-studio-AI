@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
     OPENAI_TTS_VOICE: str = "coral"
 
+    # --- Security & Admin ---
+    ADMIN_API_KEY: str = "pexyl-admin-secret-2026"
+
     @field_validator(
         "GEMINI_API_KEY",
         "OPENAI_API_KEY",

@@ -13,6 +13,12 @@ import {
   CreativeBriefRequest,
   GeneratedBriefResponse,
   ImportAssetResponse,
+  OverviewMetrics,
+  ProviderMetric,
+  ModelMetric,
+  ProjectCostMetric,
+  ProjectDetailMetrics,
+  PaginatedUsage,
 } from "../types";
 
 const api = axios.create({
@@ -199,5 +205,151 @@ export async function importWebsiteAsset(
   });
   return res.data;
 }
+
+// ---------------------------------------------------------------------------
+// Centralized Admin AI Cost & Usage Analytics APIs
+// ---------------------------------------------------------------------------
+
+function getAdminHeaders(adminKey?: string): Record<string, string> {
+  const key = adminKey || localStorage.getItem("pexyl_admin_key") || "pexyl-admin-secret-2026";
+  return { "X-Admin-Key": key };
+}
+
+export async function getAdminOverview(
+  range?: string,
+  startDate?: string,
+  endDate?: string,
+  adminKey?: string
+): Promise<OverviewMetrics> {
+  const res = await api.get<OverviewMetrics>("/admin/metrics/overview", {
+    params: { range, start_date: startDate, end_date: endDate },
+    headers: getAdminHeaders(adminKey),
+  });
+  return res.data;
+}
+
+export async function getAdminProviders(
+  range?: string,
+  startDate?: string,
+  endDate?: string,
+  adminKey?: string
+): Promise<ProviderMetric[]> {
+  const res = await api.get<ProviderMetric[]>("/admin/metrics/providers", {
+    params: { range, start_date: startDate, end_date: endDate },
+    headers: getAdminHeaders(adminKey),
+  });
+  return res.data;
+}
+
+export async function getAdminModels(
+  range?: string,
+  startDate?: string,
+  endDate?: string,
+  adminKey?: string
+): Promise<ModelMetric[]> {
+  const res = await api.get<ModelMetric[]>("/admin/metrics/models", {
+    params: { range, start_date: startDate, end_date: endDate },
+    headers: getAdminHeaders(adminKey),
+  });
+  return res.data;
+}
+
+export async function getAdminProjects(
+  range?: string,
+  startDate?: string,
+  endDate?: string,
+  adminKey?: string
+): Promise<ProjectCostMetric[]> {
+  const res = await api.get<ProjectCostMetric[]>("/admin/metrics/projects", {
+    params: { range, start_date: startDate, end_date: endDate },
+    headers: getAdminHeaders(adminKey),
+  });
+  return res.data;
+}
+
+export async function getAdminProjectDetail(
+  projectId: string,
+  adminKey?: string
+): Promise<ProjectDetailMetrics> {
+  const res = await api.get<ProjectDetailMetrics>(`/admin/metrics/projects/${projectId}`, {
+    headers: getAdminHeaders(adminKey),
+  });
+  return res.data;
+}
+
+export async function getAdminUsageLedger(
+  params: {
+    projectId?: string;
+    provider?: string;
+    model?: string;
+    operation?: string;
+    requestStatus?: string;
+    costStatus?: string;
+    range?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+    offset?: number;
+  },
+  adminKey?: string
+): Promise<PaginatedUsage> {
+  const res = await api.get<PaginatedUsage>("/admin/usage", {
+    params: {
+      project_id: params.projectId || undefined,
+      provider: params.provider || undefined,
+      model: params.model || undefined,
+      operation: params.operation || undefined,
+      request_status: params.requestStatus || undefined,
+      cost_status: params.costStatus || undefined,
+      range: params.range || undefined,
+      start_date: params.startDate || undefined,
+      end_date: params.endDate || undefined,
+      limit: params.limit || 50,
+      offset: params.offset || 0,
+    },
+    headers: getAdminHeaders(adminKey),
+  });
+  return res.data;
+}
+
+export async function downloadAdminUsageCsv(
+  params: {
+    projectId?: string;
+    provider?: string;
+    model?: string;
+    range?: string;
+    startDate?: string;
+    endDate?: string;
+  },
+  adminKey?: string
+): Promise<Blob> {
+  const res = await api.get("/admin/usage/export-csv", {
+    params: {
+      project_id: params.projectId || undefined,
+      provider: params.provider || undefined,
+      model: params.model || undefined,
+      range: params.range || undefined,
+      start_date: params.startDate || undefined,
+      end_date: params.endDate || undefined,
+    },
+    headers: getAdminHeaders(adminKey),
+    responseType: "blob",
+  });
+  return res.data;
+}
+
+export async function reconcileBilling(
+  providerTaskId: string,
+  actualCost: number,
+  adminKey?: string
+): Promise<{ success: boolean; message: string }> {
+  const res = await api.post(
+    "/admin/reconcile",
+    { provider_task_id: providerTaskId, actual_cost: actualCost },
+    { headers: getAdminHeaders(adminKey) }
+  );
+  return res.data;
+}
+
 
 

@@ -321,8 +321,12 @@ class JobRunner:
                         for s in err_job.project.shots:
                             if s.id == shot_id:
                                 s.status = ShotStatus.FAILED
+                                s.completed_at = datetime.now(timezone.utc)
                                 s.error_message = str(exc)
                                 break
+                    elif err_job.job_type == JobType.ASSEMBLE:
+                        err_job.project.stage = ProjectStage.ASSEMBLY_FAILED
+                        err_job.project.current_stage_label = f"Assembly failed: {exc}"
 
                     update_project_progress(err_job.project)
                     await err_session.commit()
@@ -488,6 +492,8 @@ class JobRunner:
             # Step 1: Submit async task if not yet submitted
             if not shot.provider_job_id:
                 shot.status = ShotStatus.SUBMITTED
+                if not shot.started_at:
+                    shot.started_at = datetime.now(timezone.utc)
                 update_project_progress(project)
                 await session.flush()
 
@@ -517,8 +523,29 @@ class JobRunner:
                     break
                 elif status_resp.status == "FAILED":
                     shot.status = ShotStatus.FAILED
+                    shot.completed_at = datetime.now(timezone.utc)
                     shot.error_message = status_resp.error_message or "Video generation task failed"
                     update_project_progress(project)
+
+                    try:
+                        from app.services.ai_usage_service import AIUsageService
+                        is_retry = (shot.retry_count > 0) or (job.attempt > 1)
+                        await AIUsageService.record_seedance_usage(
+                            session=session,
+                            model=shot.model or model_name,
+                            operation="video_retry" if is_retry else "video_generation",
+                            duration_seconds=dur,
+                            provider_task_id=shot.provider_job_id,
+                            project_id=project.id,
+                            shot_id=shot.id,
+                            job_id=job.id,
+                            request_status="FAILED",
+                            error_code="PROVIDER_TASK_FAILED",
+                            error_message=shot.error_message,
+                        )
+                    except Exception as usage_err:
+                        logger.warning(f"Failed to record failed Seedance usage: {usage_err}")
+
                     await session.flush()
                     raise RuntimeError(
                         f"Provider {provider.name} task {shot.provider_job_id} failed: {shot.error_message}"
@@ -528,6 +555,11 @@ class JobRunner:
                 elapsed += settings.VIDEO_POLL_INTERVAL
 
             if not status_resp or status_resp.status != "DONE":
+                shot.status = ShotStatus.FAILED
+                shot.completed_at = datetime.now(timezone.utc)
+                shot.error_message = f"Video generation task timed out after {settings.VIDEO_GENERATION_TIMEOUT}s"
+                update_project_progress(project)
+                await session.flush()
                 raise TimeoutError(
                     f"Video generation task {shot.provider_job_id} timed out after {settings.VIDEO_GENERATION_TIMEOUT}s"
                 )
@@ -561,7 +593,26 @@ class JobRunner:
         shot.actual_duration = actual_dur
         shot.video_path = result_path
         shot.status = ShotStatus.DONE
+        shot.completed_at = datetime.now(timezone.utc)
         shot.error_message = None
+
+        # Step 5: Record successful AI usage in ledger
+        try:
+            from app.services.ai_usage_service import AIUsageService
+            is_retry = (shot.retry_count > 0) or (job.attempt > 1)
+            await AIUsageService.record_seedance_usage(
+                session=session,
+                model=shot.model or model_name,
+                operation="video_retry" if is_retry else "video_generation",
+                duration_seconds=actual_dur or dur,
+                provider_task_id=shot.provider_job_id,
+                project_id=project.id,
+                shot_id=shot.id,
+                job_id=job.id,
+                request_status="SUCCESS",
+            )
+        except Exception as usage_err:
+            logger.warning(f"Could not record Seedance video generation usage: {usage_err}")
 
         self._check_all_shots_done(project)
         update_project_progress(project)
@@ -658,7 +709,7 @@ class JobRunner:
             export_filename = f"advertisement_v{edit.version}.mp4"
             final_path = str(final_dir / export_filename)
 
-            project.stage = ProjectStage.RENDERING
+            project.stage = ProjectStage.ASSEMBLING
             project.current_stage_label = f"Compiling Timeline v{edit.version} in FFmpeg..."
             project.progress_percent = 75.0
             await session.flush()
@@ -719,7 +770,8 @@ class JobRunner:
         final_dir.mkdir(parents=True, exist_ok=True)
         final_path = str(final_dir / "advertisement.mp4")
 
-        project.stage = ProjectStage.RENDERING
+        project.stage = ProjectStage.ASSEMBLING
+        project.current_stage_label = "Compiling clips, audio, overlays and captions in FFmpeg..."
         update_project_progress(project)
         await session.flush()
 

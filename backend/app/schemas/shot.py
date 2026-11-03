@@ -30,6 +30,8 @@ class ShotResponse(BaseModel):
     status: str
     error_message: str | None = None
     retry_count: int
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
