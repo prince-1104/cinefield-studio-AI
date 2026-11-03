@@ -48,6 +48,11 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         return {"status": "ok", "service": "ad-film-studio-api"}
 
+    @application.get("/api/video-models")
+    async def get_video_models() -> list[dict]:
+        from app.services.video_providers import provider_registry
+        return [m.model_dump() for m in provider_registry.list_available_models()]
+
     return application
 
 

@@ -93,8 +93,8 @@ export const Sidebar: FC<SidebarProps> = ({
           <div className="engine-status-pill">
             <div className="engine-dot" />
             <div className="engine-text">
-              <strong>Gemini Omni Flash</strong>
-              <span>1080p Cinema Master</span>
+              <strong>Seedance & Gemini</strong>
+              <span>Multi-Model AI Cinema</span>
             </div>
             <Sparkles size={14} style={{ marginLeft: "auto", color: "#8b5cf6" }} />
           </div>

@@ -18,10 +18,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.schemas.job import JobResponse
-from app.schemas.project import ProjectCreate, ProjectDetail, ProjectSummary
+from app.schemas.project import (
+    ModelSelectionPayload,
+    ProjectCreate,
+    ProjectDetail,
+    ProjectSummary,
+    ShotGenerationPayload,
+)
+from app.schemas.shot import ShotPromptUpdate, ShotResponse
 from app.services import project_service
+from app.services.video_providers import VideoModelInfo, provider_registry
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+
+@router.get("/video-models", response_model=list[VideoModelInfo])
+async def list_video_models() -> list[VideoModelInfo]:
+    """List all available video generation models across providers (Seedance, Gemini)."""
+    return provider_registry.list_available_models()
 
 
 @router.post("", response_model=ProjectDetail, status_code=status.HTTP_201_CREATED)
@@ -87,13 +101,76 @@ async def generate_script(
     return JobResponse.model_validate(job)
 
 
+@router.put("/{project_id}/model", response_model=ProjectDetail)
+async def select_project_model(
+    project_id: uuid.UUID,
+    payload: ModelSelectionPayload,
+    session: AsyncSession = Depends(get_session),
+) -> ProjectDetail:
+    """Select the active video generation model and provider for a project."""
+    project = await project_service.update_project_model(
+        session=session,
+        project_id=project_id,
+        model=payload.model,
+        provider=payload.provider,
+    )
+    return ProjectDetail.model_validate(project)
+
+
+@router.put("/{project_id}/shots/{shot_id}/prompt", response_model=ShotResponse)
+async def update_shot_prompt(
+    project_id: uuid.UUID,
+    shot_id: uuid.UUID,
+    payload: ShotPromptUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> ShotResponse:
+    """Edit the visual generation prompt for a specific shot."""
+    shot = await project_service.update_shot_prompt(
+        session=session,
+        project_id=project_id,
+        shot_id=shot_id,
+        visual_prompt=payload.visual_prompt,
+    )
+    return ShotResponse.model_validate(shot)
+
+
+@router.post("/{project_id}/shots/{shot_id}/generate", response_model=JobResponse)
+async def generate_shot(
+    project_id: uuid.UUID,
+    shot_id: uuid.UUID,
+    payload: ShotGenerationPayload | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> JobResponse:
+    """Trigger generation of a single shot with optional prompt or model override."""
+    prompt = payload.prompt if payload else None
+    model = payload.model if payload else None
+    provider = payload.provider if payload else None
+    job = await project_service.generate_shot_video(
+        session=session,
+        project_id=project_id,
+        shot_id=shot_id,
+        prompt=prompt,
+        model=model,
+        provider=provider,
+    )
+    return JobResponse.model_validate(job)
+
+
 @router.post("/{project_id}/approve", response_model=list[JobResponse])
 async def approve_storyboard(
     project_id: uuid.UUID,
+    payload: ModelSelectionPayload | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[JobResponse]:
     """Approve storyboard and enqueue parallel video clips and narration generation."""
-    jobs = await project_service.approve_storyboard(session, project_id)
+    model = payload.model if payload else None
+    provider = payload.provider if payload else None
+    jobs = await project_service.approve_storyboard(
+        session=session,
+        project_id=project_id,
+        model=model,
+        provider=provider,
+    )
     return [JobResponse.model_validate(j) for j in jobs]
 
 
@@ -101,10 +178,19 @@ async def approve_storyboard(
 async def retry_shot(
     project_id: uuid.UUID,
     shot_id: uuid.UUID,
+    payload: ShotGenerationPayload | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> JobResponse:
     """Retry generation of a specific failed shot."""
-    job = await project_service.retry_shot(session, project_id, shot_id)
+    model = payload.model if payload else None
+    provider = payload.provider if payload else None
+    job = await project_service.retry_shot(
+        session=session,
+        project_id=project_id,
+        shot_id=shot_id,
+        model=model,
+        provider=provider,
+    )
     return JobResponse.model_validate(job)
 
 

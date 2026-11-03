@@ -23,6 +23,8 @@ class ShotResponse(BaseModel):
     narration_text: str | None = None
     image_url: str | None = None
     video_path: str | None = None
+    provider: str | None = None
+    model: str | None = None
     provider_job_id: str | None = None
     provider_status: str | None = None
     status: str
@@ -32,3 +34,9 @@ class ShotResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ShotPromptUpdate(BaseModel):
+    """Payload for updating a shot's visual prompt."""
+
+    visual_prompt: str

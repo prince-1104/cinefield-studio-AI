@@ -43,6 +43,10 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     shot_count: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     aspect_ratio: Mapped[str] = mapped_column(String(16), default="16:9", nullable=False)
 
+    # AI Video Generation Model Selection
+    selected_video_model: Mapped[str | None] = mapped_column(String(128), default="seedance-1-0-pro-250528", nullable=True)
+    selected_video_provider: Mapped[str | None] = mapped_column(String(64), default="seedance", nullable=True)
+
     # Progress tracking
     progress_percent: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     current_stage_label: Mapped[str | None] = mapped_column(String(128), nullable=True)

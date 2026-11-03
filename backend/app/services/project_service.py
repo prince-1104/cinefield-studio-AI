@@ -77,6 +77,8 @@ async def create_project(
         target_duration=data.target_duration,
         shot_count=data.shot_count,
         aspect_ratio=data.aspect_ratio,
+        selected_video_model=data.selected_video_model or settings.SEEDANCE_DEFAULT_MODEL,
+        selected_video_provider=data.selected_video_provider or settings.DEFAULT_VIDEO_PROVIDER,
         stage=ProjectStage.BRIEF,
         progress_percent=5.0,
         current_stage_label="Campaign Brief Defined",
@@ -207,9 +209,135 @@ async def request_script_generation(
     return job
 
 
+async def update_project_model(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    model: str,
+    provider: str | None = None,
+) -> Project:
+    """Update selected video generation model and provider for a project."""
+    project = await get_project(session, project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    # Validate model using provider registry
+    from app.services.video_providers import provider_registry
+    try:
+        matched_provider, model_info = provider_registry.get_provider_for_model(model)
+        project.selected_video_model = model_info.id
+        project.selected_video_provider = provider or matched_provider.provider_id
+    except Exception:
+        project.selected_video_model = model
+        project.selected_video_provider = provider or settings.DEFAULT_VIDEO_PROVIDER
+
+    # Also update any pending shots to use this model
+    for shot in project.shots:
+        if shot.status in (ShotStatus.PENDING, ShotStatus.FAILED):
+            shot.model = project.selected_video_model
+            shot.provider = project.selected_video_provider
+
+    await session.flush()
+    return project
+
+
+async def update_shot_prompt(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    shot_id: uuid.UUID,
+    visual_prompt: str,
+) -> Shot:
+    """Update visual synthesis prompt for an individual shot."""
+    project = await get_project(session, project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    shot = await session.get(Shot, shot_id)
+    if not shot or shot.project_id != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Shot {shot_id} not found in project {project_id}",
+        )
+
+    shot.visual_prompt = visual_prompt
+    await session.flush()
+    return shot
+
+
+async def generate_shot_video(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    shot_id: uuid.UUID,
+    prompt: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+) -> Job:
+    """Generate or regenerate video for a specific shot with duplicate job prevention."""
+    project = await get_project(session, project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    shot = await session.get(Shot, shot_id)
+    if not shot or shot.project_id != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Shot {shot_id} not found in project {project_id}",
+        )
+
+    # Prevent duplicate job if one is already active
+    active_job = await job_service.find_active_job_for_shot(session, project_id, shot_id)
+    if active_job:
+        return active_job
+
+    if prompt:
+        shot.visual_prompt = prompt
+
+    chosen_model = model or shot.model or project.selected_video_model or settings.SEEDANCE_DEFAULT_MODEL
+    chosen_provider = provider or shot.provider or project.selected_video_provider or settings.DEFAULT_VIDEO_PROVIDER
+
+    shot.model = chosen_model
+    shot.provider = chosen_provider
+    shot.status = ShotStatus.PENDING
+    shot.error_message = None
+    shot.provider_job_id = None
+    shot.provider_status = None
+    shot.retry_count += 1
+
+    job = await job_service.enqueue_job(
+        session=session,
+        project_id=project_id,
+        job_type=JobType.GENERATE_VIDEO,
+        payload={
+            "shot_id": str(shot.id),
+            "shot_number": shot.shot_number,
+            "visual_prompt": shot.visual_prompt,
+            "description": shot.description,
+            "camera_motion": shot.camera_motion,
+            "transition": shot.transition,
+            "target_duration": shot.target_duration,
+            "aspect_ratio": project.aspect_ratio,
+            "product_image_path": project.product_image_path,
+            "model": chosen_model,
+            "provider": chosen_provider,
+        },
+    )
+    await session.flush()
+    return job
+
+
 async def approve_storyboard(
     session: AsyncSession,
     project_id: uuid.UUID,
+    model: str | None = None,
+    provider: str | None = None,
 ) -> list[Job]:
     """Approve the storyboard and trigger generation of all sequential video clips plus narration."""
     project = await get_project(session, project_id)
@@ -225,15 +353,28 @@ async def approve_storyboard(
             detail="Cannot approve storyboard: no shots found in project.",
         )
 
+    if model:
+        project.selected_video_model = model
+    if provider:
+        project.selected_video_provider = provider
+
     project.stage = ProjectStage.STORYBOARD_APPROVED
     update_project_progress(project)
 
     jobs: list[Job] = []
 
-    # Enqueue parallel video generation jobs for each shot
+    # Enqueue parallel video generation jobs for each shot (with duplicate job prevention)
     for shot in project.shots:
+        active_job = await job_service.find_active_job_for_shot(session, project_id, shot.id)
+        if active_job:
+            jobs.append(active_job)
+            continue
+
         shot.status = ShotStatus.PENDING
         shot.error_message = None
+        shot.model = project.selected_video_model
+        shot.provider = project.selected_video_provider
+
         job = await job_service.enqueue_job(
             session=session,
             project_id=project_id,
@@ -248,6 +389,8 @@ async def approve_storyboard(
                 "target_duration": shot.target_duration,
                 "aspect_ratio": project.aspect_ratio,
                 "product_image_path": project.product_image_path,
+                "model": project.selected_video_model,
+                "provider": project.selected_video_provider,
             },
         )
         jobs.append(job)
@@ -279,44 +422,17 @@ async def retry_shot(
     session: AsyncSession,
     project_id: uuid.UUID,
     shot_id: uuid.UUID,
+    model: str | None = None,
+    provider: str | None = None,
 ) -> Job:
     """Retry generation for a specific shot without re-generating successful ones."""
-    project = await get_project(session, project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id} not found",
-        )
-
-    shot = next((s for s in project.shots if s.id == shot_id), None)
-    if not shot:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Shot {shot_id} not found in project {project_id}",
-        )
-
-    shot.status = ShotStatus.PENDING
-    shot.error_message = None
-    shot.retry_count += 1
-
-    job = await job_service.enqueue_job(
+    return await generate_shot_video(
         session=session,
         project_id=project_id,
-        job_type=JobType.GENERATE_VIDEO,
-        payload={
-            "shot_id": str(shot.id),
-            "shot_number": shot.shot_number,
-            "visual_prompt": shot.visual_prompt,
-            "description": shot.description,
-            "camera_motion": shot.camera_motion,
-            "transition": shot.transition,
-            "target_duration": shot.target_duration,
-            "aspect_ratio": project.aspect_ratio,
-            "product_image_path": project.product_image_path,
-        },
+        shot_id=shot_id,
+        model=model,
+        provider=provider,
     )
-    await session.flush()
-    return job
 
 
 async def request_tts(

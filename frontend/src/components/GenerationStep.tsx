@@ -1,7 +1,15 @@
-import { useState, type FC } from "react";
-import { ProjectDetail } from "../types";
+import { useState, useEffect, type FC } from "react";
+import { ProjectDetail, VideoModelInfo } from "../types";
 import { ShotCard } from "./ShotCard";
-import { assembleVideo, retryShot, getArtifactUrl } from "../api/client";
+import {
+  assembleVideo,
+  retryShot,
+  getArtifactUrl,
+  getVideoModels,
+  selectProjectModel,
+  generateShotVideo,
+  approveStoryboard,
+} from "../api/client";
 import {
   Clapperboard,
   CheckCircle2,
@@ -10,6 +18,9 @@ import {
   ArrowRight,
   Layers,
   Activity,
+  Cpu,
+  Play,
+  RotateCw,
 } from "lucide-react";
 
 interface GenerationStepProps {
@@ -27,9 +38,55 @@ export const GenerationStep: FC<GenerationStepProps> = ({
 }) => {
   const [retryingShotId, setRetryingShotId] = useState<string | null>(null);
   const [assembling, setAssembling] = useState(false);
+  const [generatingAll, setGeneratingAll] = useState(false);
+  const [models, setModels] = useState<VideoModelInfo[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string>(
+    project.selected_video_model || "seedance-1-0-pro-250528"
+  );
+  const [switchingModel, setSwitchingModel] = useState(false);
+
+  useEffect(() => {
+    getVideoModels()
+      .then((data) => {
+        setModels(data);
+        if (project.selected_video_model) {
+          setSelectedModelId(project.selected_video_model);
+        } else if (data.length > 0) {
+          const defaultModel = data.find((m) => m.is_default) || data[0];
+          if (defaultModel) {
+            setSelectedModelId(defaultModel.id);
+          }
+        }
+      })
+      .catch((err) => console.warn("Failed to fetch available video models:", err));
+  }, [project.selected_video_model]);
+
+  const selectedModel = models.find((m) => m.id === selectedModelId) || {
+    id: selectedModelId,
+    name: selectedModelId.includes("seedance") ? "Seedance 1.0 Pro" : "Gemini Omni Flash 1.1",
+    provider: selectedModelId.includes("seedance") ? "seedance" : "gemini",
+    provider_name: selectedModelId.includes("seedance") ? "ByteDance Seedance" : "Google DeepMind",
+    description: "Cinematic AI video generation model with temporal consistency and camera motion physics.",
+    capabilities: ["1080p Resolution", "First-Frame Image Conditioning", "Camera Motion Control"],
+  };
+
+  const handleModelChange = async (newModelId: string) => {
+    setSelectedModelId(newModelId);
+    setSwitchingModel(true);
+    try {
+      const found = models.find((m) => m.id === newModelId);
+      await selectProjectModel(project.id, newModelId, found?.provider);
+    } catch (err: any) {
+      console.error("Failed to select video model:", err);
+      onError(err.response?.data?.detail || err.message || "Failed to switch video model");
+    } finally {
+      setSwitchingModel(false);
+    }
+  };
 
   const totalShots = project.shots && project.shots.length > 0 ? project.shots.length : (project.shot_count || 8);
   const doneShotsCount = project.shots ? project.shots.filter((s) => s.status === "DONE").length : 0;
+  const pendingShotsCount = project.shots ? project.shots.filter((s) => s.status === "PENDING" || s.status === "FAILED").length : 0;
   const allShotsDone = totalShots > 0 && doneShotsCount === totalShots;
   const narrationReady = Boolean(project.narration_path);
   const isReadyToAssemble = allShotsDone && narrationReady;
@@ -42,14 +99,40 @@ export const GenerationStep: FC<GenerationStepProps> = ({
   const handleRetryShot = async (shotId: string) => {
     setRetryingShotId(shotId);
     try {
-      await retryShot(project.id, shotId);
+      await retryShot(project.id, shotId, selectedModelId, selectedModel.provider);
     } catch (err: any) {
       console.error("Failed to retry shot:", err);
-      onError(
-        err.response?.data?.detail || err.message || "Failed to retry shot generation"
-      );
+      onError(err.response?.data?.detail || err.message || "Failed to retry shot generation");
     } finally {
       setRetryingShotId(null);
+    }
+  };
+
+  const handleGenerateSingleShot = async (shotId: string, prompt?: string) => {
+    setRetryingShotId(shotId);
+    try {
+      await generateShotVideo(project.id, shotId, {
+        prompt,
+        model: selectedModelId,
+        provider: selectedModel.provider,
+      });
+    } catch (err: any) {
+      console.error("Failed to generate shot:", err);
+      onError(err.response?.data?.detail || err.message || "Failed to generate shot");
+    } finally {
+      setRetryingShotId(null);
+    }
+  };
+
+  const handleGenerateAllShots = async () => {
+    setGeneratingAll(true);
+    try {
+      await approveStoryboard(project.id, selectedModelId, selectedModel.provider);
+    } catch (err: any) {
+      console.error("Failed to generate all shots:", err);
+      onError(err.response?.data?.detail || err.message || "Failed to generate shots");
+    } finally {
+      setGeneratingAll(false);
     }
   };
 
@@ -57,12 +140,9 @@ export const GenerationStep: FC<GenerationStepProps> = ({
     setAssembling(true);
     try {
       await assembleVideo(project.id);
-      // Wait for background worker to compile and broadcast ASSEMBLED stage via SSE
     } catch (err: any) {
       console.error("Failed to trigger assembly:", err);
-      onError(
-        err.response?.data?.detail || err.message || "Failed to trigger final assembly"
-      );
+      onError(err.response?.data?.detail || err.message || "Failed to trigger final assembly");
       setAssembling(false);
     }
   };
@@ -80,7 +160,29 @@ export const GenerationStep: FC<GenerationStepProps> = ({
             </span>
           </div>
 
-          <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            {pendingShotsCount > 0 && !isAssembled && !isRendering && (
+              <button
+                type="button"
+                className="btn-secondary-studio"
+                onClick={handleGenerateAllShots}
+                disabled={generatingAll}
+                style={{ padding: "0.55rem 1rem", fontSize: "0.85rem" }}
+              >
+                {generatingAll ? (
+                  <>
+                    <RotateCw size={14} className="spin" />
+                    <span>Queuing Generation...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play size={14} />
+                    <span>Generate Remaining {pendingShotsCount} Clips</span>
+                  </>
+                )}
+              </button>
+            )}
+
             {isAssembled ? (
               <button
                 type="button"
@@ -112,8 +214,118 @@ export const GenerationStep: FC<GenerationStepProps> = ({
           </div>
         </div>
         <p className="workspace-subheading">
-          {stageLabel}. Gemini Omni Flash synthesizes all {totalShots} video clips in parallel while OpenAI generates synchronized narration.
+          {stageLabel}. {selectedModel.name} synthesizes clips with multimodal continuity while OpenAI generates synchronized narration.
         </p>
+      </div>
+
+      {/* Model Selection Panel */}
+      <div
+        style={{
+          background: "var(--bg-surface)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-lg)",
+          padding: "1.25rem 1.5rem",
+          marginBottom: "1.75rem",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginBottom: "0.75rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            <div className="asset-icon-circle" style={{ width: "32px", height: "32px" }}>
+              <Cpu size={16} style={{ color: "#8b5cf6" }} />
+            </div>
+            <div>
+              <div style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text-main)" }}>
+                AI Video Generation Model Selection
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                Choose the underlying generative video engine and inference parameters
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <label style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-muted)" }}>
+              Active Model:
+            </label>
+            <select
+              value={selectedModelId}
+              onChange={(e) => handleModelChange(e.target.value)}
+              disabled={switchingModel}
+              style={{
+                background: "var(--bg-surface-elevated)",
+                border: "1px solid var(--border-default)",
+                color: "var(--text-main)",
+                padding: "0.45rem 1rem",
+                borderRadius: "6px",
+                fontSize: "0.85rem",
+                fontWeight: 600,
+                outline: "none",
+                cursor: "pointer",
+              }}
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.provider_name})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Selected Model Details & Capabilities */}
+        <div
+          style={{
+            background: "var(--bg-surface-elevated)",
+            borderRadius: "8px",
+            padding: "0.85rem 1rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "0.75rem",
+          }}
+        >
+          <div style={{ maxWidth: "600px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+              <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#ffffff" }}>
+                {selectedModel.name}
+              </span>
+              <span
+                style={{
+                  fontSize: "0.68rem",
+                  background: "rgba(139, 92, 246, 0.2)",
+                  color: "#c4b5fd",
+                  padding: "0.15rem 0.4rem",
+                  borderRadius: "4px",
+                  fontWeight: 600,
+                }}
+              >
+                {selectedModel.provider_name}
+              </span>
+            </div>
+            <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", margin: 0, lineHeight: 1.4 }}>
+              {selectedModel.description}
+            </p>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+            {(selectedModel.capabilities || []).map((cap, i) => (
+              <span
+                key={i}
+                style={{
+                  fontSize: "0.72rem",
+                  background: "rgba(255, 255, 255, 0.05)",
+                  border: "1px solid rgba(255, 255, 255, 0.1)",
+                  color: "var(--text-secondary)",
+                  padding: "0.2rem 0.5rem",
+                  borderRadius: "4px",
+                }}
+              >
+                {cap}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Real Live Pipeline Progress Bar */}
@@ -234,6 +446,7 @@ export const GenerationStep: FC<GenerationStepProps> = ({
             key={shot.id}
             shot={shot}
             onRetry={handleRetryShot}
+            onGenerateShot={handleGenerateSingleShot}
             isRetrying={retryingShotId === shot.id}
           />
         ))}

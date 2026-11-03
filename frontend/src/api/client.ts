@@ -4,14 +4,53 @@ import {
   ProjectCreate,
   ProjectDetail,
   ProjectSummary,
+  ShotResponse,
   TimelineData,
   TimelineEditResponse,
   TimelineEditSummary,
+  VideoModelInfo,
 } from "../types";
 
 const api = axios.create({
   baseURL: "/api",
 });
+
+export async function getVideoModels(): Promise<VideoModelInfo[]> {
+  const res = await api.get<VideoModelInfo[]>("/video-models");
+  return res.data;
+}
+
+export async function selectProjectModel(
+  projectId: string,
+  model: string,
+  provider?: string
+): Promise<ProjectDetail> {
+  const res = await api.put<ProjectDetail>(`/projects/${projectId}/model`, {
+    model,
+    provider: provider || null,
+  });
+  return res.data;
+}
+
+export async function updateShotPrompt(
+  projectId: string,
+  shotId: string,
+  visualPrompt: string
+): Promise<ShotResponse> {
+  const res = await api.put<ShotResponse>(`/projects/${projectId}/shots/${shotId}/prompt`, {
+    visual_prompt: visualPrompt,
+  });
+  return res.data;
+}
+
+export async function generateShotVideo(
+  projectId: string,
+  shotId: string,
+  params?: { prompt?: string; model?: string; provider?: string }
+): Promise<JobResponse> {
+  const res = await api.post<JobResponse>(`/projects/${projectId}/shots/${shotId}/generate`, params || {});
+  return res.data;
+}
 
 export async function createProject(data: ProjectCreate): Promise<ProjectDetail> {
   const res = await api.post<ProjectDetail>("/projects", data);
@@ -58,13 +97,24 @@ export async function generateScript(projectId: string): Promise<JobResponse> {
   return res.data;
 }
 
-export async function approveStoryboard(projectId: string): Promise<JobResponse[]> {
-  const res = await api.post<JobResponse[]>(`/projects/${projectId}/approve`);
+export async function approveStoryboard(
+  projectId: string,
+  model?: string,
+  provider?: string
+): Promise<JobResponse[]> {
+  const payload = model ? { model, provider: provider || null } : {};
+  const res = await api.post<JobResponse[]>(`/projects/${projectId}/approve`, payload);
   return res.data;
 }
 
-export async function retryShot(projectId: string, shotId: string): Promise<JobResponse> {
-  const res = await api.post<JobResponse>(`/projects/${projectId}/shots/${shotId}/retry`);
+export async function retryShot(
+  projectId: string,
+  shotId: string,
+  model?: string,
+  provider?: string
+): Promise<JobResponse> {
+  const payload = model ? { model, provider: provider || null } : {};
+  const res = await api.post<JobResponse>(`/projects/${projectId}/shots/${shotId}/retry`, payload);
   return res.data;
 }
 

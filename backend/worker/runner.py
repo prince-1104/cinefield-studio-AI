@@ -28,6 +28,8 @@ from app.models.job import Job, JobStatus, JobType
 from app.models.project import Project, ProjectStage
 from app.models.shot import Shot, ShotStatus
 from app.services.project_service import update_project_progress
+from app.services.video_providers import provider_registry
+from worker.claude_planner import ClaudePlanner
 from worker.ffmpeg_renderer import (
     FFmpegMediaRenderer,
     get_media_duration,
@@ -56,13 +58,22 @@ class JobRunner:
         media_renderer: MediaRenderer | None = None,
         storage: LocalArtifactStorage | None = None,
         poll_interval_seconds: float = 2.0,
+        max_concurrent_jobs: int | None = None,
     ) -> None:
-        self.planner = planner or GeminiPlanner()
+        if planner is not None:
+            self.planner = planner
+        elif settings.PLANNER_PROVIDER == "claude" and settings.CLAUDE_API_KEY:
+            self.planner = ClaudePlanner()
+        else:
+            self.planner = GeminiPlanner()
+
+        self._custom_video_generator = video_generator
         self.video_generator = video_generator or GeminiOmniVideoGenerator()
         self.speech_provider = speech_provider or OpenAISpeechProvider()
         self.media_renderer = media_renderer or FFmpegMediaRenderer()
         self.storage = storage or LocalArtifactStorage()
         self.poll_interval = poll_interval_seconds
+        self.max_concurrent_jobs = max_concurrent_jobs or settings.MAX_CONCURRENT_JOBS
         self.running = False
 
     async def recover_abandoned_jobs(self) -> int:
@@ -124,13 +135,41 @@ class JobRunner:
                             "recovered": True,
                         }
                     else:
-                        logger.info(
-                            f"Clip incomplete for job {job.id}. Resetting to QUEUED and shot to PENDING."
-                        )
-                        if shot:
-                            shot.status = ShotStatus.PENDING
-                        job.status = JobStatus.QUEUED
-                        job.started_at = None
+                        # Check if provider task is completed and can be retrieved
+                        retrieved = False
+                        if shot and shot.provider_job_id:
+                            try:
+                                provider, _ = provider_registry.get_provider_for_model(
+                                    shot.model or settings.SEEDANCE_DEFAULT_MODEL
+                                )
+                                status_resp = await provider.get_generation_status(shot.provider_job_id)
+                                if status_resp.status == "DONE":
+                                    await provider.retrieve_generated_video(
+                                        shot.provider_job_id, str(clip_path), status_resp
+                                    )
+                                    if clip_path.is_file() and clip_path.stat().st_size > 1000:
+                                        shot.status = ShotStatus.DONE
+                                        shot.video_path = str(clip_path)
+                                        shot.actual_duration = await get_media_duration(str(clip_path))
+                                        job.status = JobStatus.DONE
+                                        job.completed_at = datetime.now(timezone.utc)
+                                        job.result = {
+                                            "shot_id": str(shot.id),
+                                            "video_path": str(clip_path),
+                                            "recovered_from_provider": True,
+                                        }
+                                        retrieved = True
+                            except Exception as rec_err:
+                                logger.warning(f"Could not retrieve task from provider on recovery: {rec_err}")
+
+                        if not retrieved:
+                            logger.info(
+                                f"Clip incomplete for job {job.id}. Resetting to QUEUED."
+                            )
+                            if shot:
+                                shot.status = ShotStatus.PENDING
+                            job.status = JobStatus.QUEUED
+                            job.started_at = None
 
                 elif job.job_type == JobType.GENERATE_TTS:
                     audio_path = (
@@ -300,8 +339,15 @@ class JobRunner:
         shot_count = int(payload.get("shot_count", project.shot_count))
         aspect_ratio = str(payload.get("aspect_ratio", project.aspect_ratio))
 
+        planner_type = payload.get("planner") or settings.PLANNER_PROVIDER
+        active_planner = self.planner
+        if planner_type == "claude" and settings.CLAUDE_API_KEY:
+            active_planner = ClaudePlanner()
+        elif planner_type == "gemini" and settings.GEMINI_API_KEY:
+            active_planner = GeminiPlanner()
+
         import inspect
-        sig = inspect.signature(self.planner.plan_storyboard)
+        sig = inspect.signature(active_planner.plan_storyboard)
         plan_kwargs: dict[str, Any] = {
             "product_name": payload.get("product_name", project.product_name),
             "brief": payload.get("brief", project.brief),
@@ -317,7 +363,16 @@ class JobRunner:
         if "aspect_ratio" in sig.parameters:
             plan_kwargs["aspect_ratio"] = aspect_ratio
 
-        storyboard = await self.planner.plan_storyboard(**plan_kwargs)
+        try:
+            storyboard = await active_planner.plan_storyboard(**plan_kwargs)
+        except Exception as e:
+            if active_planner != self.planner:
+                logger.warning(
+                    f"Active planner {planner_type} failed ({e}), falling back to default planner"
+                )
+                storyboard = await self.planner.plan_storyboard(**plan_kwargs)
+            else:
+                raise
 
         project.script = storyboard.script_summary
         project.target_duration = target_dur
@@ -342,6 +397,8 @@ class JobRunner:
                 camera_motion=s.camera_motion,
                 transition=s.transition,
                 narration_text=s.narration_text,
+                provider=project.selected_video_provider or settings.DEFAULT_VIDEO_PROVIDER,
+                model=project.selected_video_model or settings.SEEDANCE_DEFAULT_MODEL,
                 status=ShotStatus.PENDING,
                 retry_count=0,
             )
@@ -377,6 +434,13 @@ class JobRunner:
         clip_dir.mkdir(parents=True, exist_ok=True)
         clip_path = str(clip_dir / f"shot_{shot.shot_number}.mp4")
 
+        # Resolve provider and model from payload or project defaults
+        provider_name = payload.get("provider") or shot.provider or project.selected_video_provider or settings.DEFAULT_VIDEO_PROVIDER
+        model_name = payload.get("model") or shot.model or project.selected_video_model or settings.SEEDANCE_DEFAULT_MODEL
+
+        shot.provider = provider_name
+        shot.model = model_name
+
         # 1. Guard against duplicate generation if clip already exists and is validated
         if shot.video_path and os.path.isfile(shot.video_path) and os.path.getsize(shot.video_path) > 1000:
             logger.info(f"Shot {shot.shot_number} video already exists at {shot.video_path}; skipping paid generation.")
@@ -396,25 +460,90 @@ class JobRunner:
             job.result = {"shot_id": str(shot.id), "video_path": clip_path, "cached": True}
             return
 
-        # 2. Honest status lifecycle: SUBMITTED -> GENERATING
-        shot.status = ShotStatus.SUBMITTED
-        update_project_progress(project)
-        await session.flush()
-
-        shot.status = ShotStatus.GENERATING
-        update_project_progress(project)
-        await session.flush()
-
         dur = int(round(shot.target_duration)) if shot.target_duration > 0 else 5
-        result_path = await self.video_generator.generate_clip(
-            prompt=shot.visual_prompt,
-            output_path=clip_path,
-            reference_image_path=payload.get("product_image_path"),
-            duration_seconds=dur,
-            aspect_ratio=project.aspect_ratio,
-        )
 
-        # 3. Honest status lifecycle: DOWNLOADING -> VALIDATING
+        # If a custom VideoGenerationProvider was injected (e.g. in unit tests), delegate directly to it
+        if self._custom_video_generator is not None:
+            shot.status = ShotStatus.SUBMITTED
+            update_project_progress(project)
+            await session.flush()
+
+            shot.status = ShotStatus.GENERATING
+            update_project_progress(project)
+            await session.flush()
+
+            result_path = await self._custom_video_generator.generate_clip(
+                prompt=shot.visual_prompt,
+                output_path=clip_path,
+                reference_image_path=payload.get("product_image_path"),
+                duration_seconds=dur,
+                aspect_ratio=project.aspect_ratio,
+            )
+        else:
+            # Multi-provider architecture (Seedance, Gemini, etc.)
+            provider, model_info = provider_registry.get_provider_for_model(model_name)
+            shot.provider = provider.provider_id
+            shot.model = model_info.id
+
+            # Step 1: Submit async task if not yet submitted
+            if not shot.provider_job_id:
+                shot.status = ShotStatus.SUBMITTED
+                update_project_progress(project)
+                await session.flush()
+
+                task_resp = await provider.generate_video(
+                    prompt=shot.visual_prompt,
+                    duration_seconds=dur,
+                    aspect_ratio=project.aspect_ratio,
+                    reference_image_path=payload.get("product_image_path"),
+                    model=model_name,
+                )
+                shot.provider_job_id = task_resp.task_id
+                shot.provider_status = task_resp.status
+                await session.flush()
+
+            # Step 2: Poll status
+            shot.status = ShotStatus.GENERATING
+            update_project_progress(project)
+            await session.flush()
+
+            elapsed = 0.0
+            status_resp = None
+            while elapsed < settings.VIDEO_GENERATION_TIMEOUT:
+                status_resp = await provider.get_generation_status(shot.provider_job_id)
+                shot.provider_status = status_resp.status
+
+                if status_resp.status == "DONE":
+                    break
+                elif status_resp.status == "FAILED":
+                    shot.status = ShotStatus.FAILED
+                    shot.error_message = status_resp.error_message or "Video generation task failed"
+                    update_project_progress(project)
+                    await session.flush()
+                    raise RuntimeError(
+                        f"Provider {provider.name} task {shot.provider_job_id} failed: {shot.error_message}"
+                    )
+
+                await asyncio.sleep(settings.VIDEO_POLL_INTERVAL)
+                elapsed += settings.VIDEO_POLL_INTERVAL
+
+            if not status_resp or status_resp.status != "DONE":
+                raise TimeoutError(
+                    f"Video generation task {shot.provider_job_id} timed out after {settings.VIDEO_GENERATION_TIMEOUT}s"
+                )
+
+            # Step 3: Download video
+            shot.status = ShotStatus.DOWNLOADING
+            update_project_progress(project)
+            await session.flush()
+
+            result_path = await provider.retrieve_generated_video(
+                task_id=shot.provider_job_id,
+                output_path=clip_path,
+                status_payload=status_resp,
+            )
+
+        # Step 4: Validate stream with ffprobe
         shot.status = ShotStatus.VALIDATING
         await session.flush()
 
@@ -439,6 +568,9 @@ class JobRunner:
         job.result = {
             "shot_id": str(shot.id),
             "video_path": result_path,
+            "provider": shot.provider,
+            "model": shot.model,
+            "provider_job_id": shot.provider_job_id,
             "actual_duration": actual_dur,
         }
 
@@ -629,20 +761,40 @@ class JobRunner:
         except Exception as e:
             logger.error(f"Error during job recovery on startup: {e}", exc_info=True)
 
-        logger.info("Listening for queued jobs...")
+        logger.info(f"Listening for queued jobs (concurrency limit: {self.max_concurrent_jobs})...")
+        active_tasks: set[asyncio.Task] = set()
+
         while self.running:
             try:
-                job = await self.claim_next_job()
-                if job:
-                    await self.execute_job(job.id)
-                else:
-                    await asyncio.sleep(self.poll_interval)
+                # Clean up completed tasks
+                done = {t for t in active_tasks if t.done()}
+                active_tasks -= done
+
+                # Check exceptions on completed tasks for logging
+                for t in done:
+                    if not t.cancelled() and t.exception():
+                        logger.error(f"Task raised unexpected exception: {t.exception()}")
+
+                # If under concurrency cap, claim next available job
+                if len(active_tasks) < self.max_concurrent_jobs:
+                    job = await self.claim_next_job()
+                    if job:
+                        task = asyncio.create_task(self.execute_job(job.id))
+                        active_tasks.add(task)
+                        continue
+
+                await asyncio.sleep(self.poll_interval)
             except asyncio.CancelledError:
                 logger.info("Worker loop cancelled, stopping...")
                 break
             except Exception as e:
                 logger.error(f"Error in worker polling loop: {e}", exc_info=True)
                 await asyncio.sleep(self.poll_interval)
+
+        # Wait for remaining active tasks on shutdown
+        if active_tasks:
+            logger.info(f"Waiting for {len(active_tasks)} active background task(s) to finish...")
+            await asyncio.gather(*active_tasks, return_exceptions=True)
 
     def stop(self) -> None:
         """Signal the worker to gracefully exit."""

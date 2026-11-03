@@ -66,3 +66,26 @@ async def get_next_queued_job(
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
+
+async def find_active_job_for_shot(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    shot_id: uuid.UUID,
+) -> Job | None:
+    """Find an active (QUEUED or RUNNING) GENERATE_VIDEO job for a given shot to prevent duplicates."""
+    stmt = (
+        select(Job)
+        .where(
+            Job.project_id == project_id,
+            Job.job_type == JobType.GENERATE_VIDEO,
+            Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]),
+        )
+    )
+    result = await session.execute(stmt)
+    jobs = result.scalars().all()
+    shot_id_str = str(shot_id)
+    for j in jobs:
+        if j.payload and j.payload.get("shot_id") == shot_id_str:
+            return j
+    return None
+

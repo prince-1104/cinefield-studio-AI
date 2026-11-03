@@ -1,13 +1,14 @@
-import { useState, type FC } from "react";
-import { ProjectDetail } from "../types";
+import { useState, useEffect, type FC } from "react";
+import { ProjectDetail, VideoModelInfo } from "../types";
 import { ShotCard } from "./ShotCard";
-import { approveStoryboard } from "../api/client";
+import { approveStoryboard, getVideoModels, selectProjectModel } from "../api/client";
 import {
   Clapperboard,
   ArrowLeft,
   CheckCircle,
   Film,
   Clock,
+  Cpu,
 } from "lucide-react";
 
 interface StoryboardStepProps {
@@ -24,15 +25,46 @@ export const StoryboardStep: FC<StoryboardStepProps> = ({
   onError,
 }) => {
   const [approving, setApproving] = useState(false);
+  const [models, setModels] = useState<VideoModelInfo[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string>(
+    project.selected_video_model || "seedance-1-0-pro-250528"
+  );
+
+  useEffect(() => {
+    getVideoModels()
+      .then((data) => {
+        setModels(data);
+        if (project.selected_video_model) {
+          setSelectedModelId(project.selected_video_model);
+        } else if (data.length > 0) {
+          const defaultModel = data.find((m) => m.is_default) || data[0];
+          if (defaultModel) {
+            setSelectedModelId(defaultModel.id);
+          }
+        }
+      })
+      .catch((err) => console.warn("Failed to load video models in storyboard review:", err));
+  }, [project.selected_video_model]);
 
   const shotCount = project.shots ? project.shots.length : 0;
   const hasShots = shotCount > 0;
   const targetDur = project.target_duration || 60;
 
+  const handleModelSelect = async (newModelId: string) => {
+    setSelectedModelId(newModelId);
+    try {
+      const found = models.find((m) => m.id === newModelId);
+      await selectProjectModel(project.id, newModelId, found?.provider);
+    } catch (err) {
+      console.warn("Failed to persist model selection:", err);
+    }
+  };
+
   const handleApprove = async () => {
     setApproving(true);
     try {
-      await approveStoryboard(project.id);
+      const found = models.find((m) => m.id === selectedModelId);
+      await approveStoryboard(project.id, selectedModelId, found?.provider);
       onApproved(project);
     } catch (err: any) {
       console.error("Failed to approve storyboard:", err);
@@ -69,7 +101,7 @@ export const StoryboardStep: FC<StoryboardStepProps> = ({
         </div>
         <p className="workspace-subheading">
           Review the generated {shotCount}-shot narrative sequence for <strong>{project.product_name}</strong>.
-          Upon approval, Gemini Omni Flash will synthesize all clips while OpenAI generates synchronized voiceover narration.
+          Select your generative video model below to synthesize clips upon approval.
         </p>
       </div>
 
@@ -102,7 +134,7 @@ export const StoryboardStep: FC<StoryboardStepProps> = ({
             Architecting {targetDur}s Cinematic Arc...
           </h3>
           <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", maxWidth: "520px", margin: "0 auto" }}>
-            Gemini AI is structuring scenes, camera movements, timeline windows, and narration lines tailored to your campaign brief.
+            Structuring scenes, camera movements, timeline windows, and narration lines tailored to your campaign brief.
             This screen updates automatically via live stream.
           </p>
         </div>
@@ -114,7 +146,7 @@ export const StoryboardStep: FC<StoryboardStepProps> = ({
             ))}
           </div>
 
-          {/* Action Bar */}
+          {/* Action Bar with Model Selector */}
           <div
             className="studio-panel"
             style={{
@@ -122,13 +154,45 @@ export const StoryboardStep: FC<StoryboardStepProps> = ({
               alignItems: "center",
               justifyContent: "space-between",
               padding: "1.25rem 1.75rem",
+              flexWrap: "wrap",
+              gap: "1rem",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--status-done)", fontSize: "0.85rem" }}>
-              <CheckCircle size={16} />
-              <span>
-                {shotCount} sequential shots covering {targetDur}.0s timeline validated and ready for production synthesis
-              </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--status-done)", fontSize: "0.85rem" }}>
+                <CheckCircle size={16} />
+                <span>
+                  {shotCount} shots covering {targetDur}.0s timeline validated
+                </span>
+              </div>
+
+              {/* Model Selector dropdown in Action Bar */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <Cpu size={14} style={{ color: "#8b5cf6" }} />
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>
+                  Synthesis Engine:
+                </span>
+                <select
+                  value={selectedModelId}
+                  onChange={(e) => handleModelSelect(e.target.value)}
+                  style={{
+                    background: "var(--bg-surface-elevated)",
+                    border: "1px solid var(--border-default)",
+                    color: "var(--text-main)",
+                    padding: "0.35rem 0.75rem",
+                    borderRadius: "6px",
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
+                    outline: "none",
+                  }}
+                >
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.provider_name})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div style={{ display: "flex", gap: "0.75rem" }}>

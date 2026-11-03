@@ -25,6 +25,20 @@ export type JobType =
   | "GENERATE_TTS"
   | "ASSEMBLE";
 
+export interface VideoModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  provider_name: string;
+  description: string;
+  supported_aspect_ratios: string[];
+  supported_durations: number[];
+  default_duration: number;
+  is_default: boolean;
+  requires_resource_id?: boolean;
+  capabilities?: string[];
+}
+
 export interface ShotResponse {
   id: string;
   project_id: string;
@@ -40,6 +54,8 @@ export interface ShotResponse {
   narration_text: string | null;
   image_url: string | null;
   video_path: string | null;
+  provider?: string | null;
+  model?: string | null;
   provider_job_id: string | null;
   provider_status: string | null;
   status: ShotStatus;
@@ -85,6 +101,8 @@ export interface ProjectDetail {
   target_duration: number;
   shot_count: number;
   aspect_ratio: string;
+  selected_video_model?: string | null;
+  selected_video_provider?: string | null;
   progress_percent: number;
   current_stage_label?: string | null;
 
@@ -109,6 +127,8 @@ export interface ProjectSummary {
   stage: ProjectStage;
   target_duration: number;
   shot_count: number;
+  selected_video_model?: string | null;
+  selected_video_provider?: string | null;
   progress_percent: number;
   created_at: string;
   updated_at: string;
@@ -123,6 +143,8 @@ export interface ProjectCreate {
   target_duration?: number;
   shot_count?: number;
   aspect_ratio?: string;
+  selected_video_model?: string;
+  selected_video_provider?: string;
 }
 
 export interface TimelineSettings {

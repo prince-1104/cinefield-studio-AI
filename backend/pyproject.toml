@@ -19,6 +19,7 @@ dependencies = [
     "sse-starlette>=2.1",
     "google-genai>=1.14",
     "openai>=1.60",
+    "anthropic>=0.40",
     "httpx>=0.28",
     "pillow>=11.0",
     "python-dotenv>=1.0",

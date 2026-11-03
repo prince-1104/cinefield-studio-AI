@@ -33,6 +33,8 @@ export const BriefStep: FC<BriefStepProps> = ({
     target_duration: 60,
     shot_count: 8,
     aspect_ratio: "16:9",
+    selected_video_model: "seedance-1-0-pro-250528",
+    selected_video_provider: "seedance",
   });
 
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "9:16">("16:9");

@@ -48,6 +48,8 @@ class Shot(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     narration_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # External provider tracking
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     provider_job_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     provider_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
