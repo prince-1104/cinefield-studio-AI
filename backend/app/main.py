@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine
-from app.routers import artifacts, events, projects, timeline
+from app.routers import ai_creative, artifacts, events, projects, timeline
 
 
 @asynccontextmanager
@@ -43,6 +43,7 @@ def create_app() -> FastAPI:
     application.include_router(timeline.router)
     application.include_router(events.router)
     application.include_router(artifacts.router)
+    application.include_router(ai_creative.router)
 
     @application.get("/api/health")
     async def health() -> dict:

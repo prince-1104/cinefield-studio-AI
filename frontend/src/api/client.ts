@@ -9,6 +9,10 @@ import {
   TimelineEditResponse,
   TimelineEditSummary,
   VideoModelInfo,
+  WebsiteAnalysisResult,
+  CreativeBriefRequest,
+  GeneratedBriefResponse,
+  ImportAssetResponse,
 } from "../types";
 
 const api = axios.create({
@@ -170,4 +174,30 @@ export function getArtifactUrl(pathOrKey: string): string {
   const clean = pathOrKey.replace(/^.*?artifacts\//, "");
   return `/api/artifacts/${clean}`;
 }
+
+export async function analyzeWebsite(url: string): Promise<WebsiteAnalysisResult> {
+  const res = await api.post<WebsiteAnalysisResult>("/ai/analyze-website", { url });
+  return res.data;
+}
+
+export async function generateCreativeBrief(
+  payload: CreativeBriefRequest
+): Promise<GeneratedBriefResponse> {
+  const res = await api.post<GeneratedBriefResponse>("/ai/generate-brief", payload);
+  return res.data;
+}
+
+export async function importWebsiteAsset(
+  url: string,
+  assetType: "product" | "logo",
+  projectId?: string
+): Promise<ImportAssetResponse> {
+  const res = await api.post<ImportAssetResponse>("/ai/import-asset", {
+    url,
+    asset_type: assetType,
+    project_id: projectId || null,
+  });
+  return res.data;
+}
+
 

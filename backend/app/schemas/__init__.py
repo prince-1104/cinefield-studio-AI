@@ -4,6 +4,15 @@ from app.schemas.job import JobResponse
 from app.schemas.project import ProjectCreate, ProjectDetail, ProjectSummary
 from app.schemas.shot import ShotResponse
 from app.schemas.storyboard import Storyboard, StoryboardShot
+from app.schemas.creative_ai import (
+    CreativeBriefRequest,
+    GeneratedBriefResponse,
+    ImportAssetRequest,
+    ImportAssetResponse,
+    WebsiteAnalysisRequest,
+    WebsiteAnalysisResult,
+    WebsiteAssetCandidate,
+)
 
 __all__ = [
     "JobResponse",
@@ -13,4 +22,11 @@ __all__ = [
     "ShotResponse",
     "Storyboard",
     "StoryboardShot",
+    "CreativeBriefRequest",
+    "GeneratedBriefResponse",
+    "ImportAssetRequest",
+    "ImportAssetResponse",
+    "WebsiteAnalysisRequest",
+    "WebsiteAnalysisResult",
+    "WebsiteAssetCandidate",
 ]

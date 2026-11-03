@@ -234,3 +234,63 @@ export interface TimelineEditSummary {
   has_rendered_video: boolean;
   created_at: string;
 }
+
+export interface WebsiteAssetCandidate {
+  url: string;
+  asset_type: "logo" | "product" | "screenshot" | "favicon";
+  title?: string | null;
+  width?: number | null;
+  height?: number | null;
+}
+
+export interface WebsiteAnalysisResult {
+  url: string;
+  domain: string;
+  title: string;
+  description: string;
+  headings: string[];
+  key_content: string;
+  brand_colors: string[];
+  logo_candidates: WebsiteAssetCandidate[];
+  product_image_candidates: WebsiteAssetCandidate[];
+}
+
+export interface CreativeBriefRequest {
+  prompt: string;
+  website_url?: string | null;
+  website_data?: WebsiteAnalysisResult | null;
+  video_category: string;
+  target_duration?: number;
+  aspect_ratio?: string;
+  creative_style?: string | null;
+  target_audience?: string | null;
+  language?: string;
+  narration_preference?: string;
+  cta?: string | null;
+}
+
+export interface GeneratedBriefResponse {
+  product_name: string;
+  brief: string;
+  tone: string;
+  audience: string;
+  cta: string;
+  target_duration: number;
+  shot_count: number;
+  aspect_ratio: string;
+  video_category: string;
+  suggested_music_mood: string;
+  creative_reasoning: string;
+  hook?: string | null;
+  narration_preview?: string | null;
+  provider_used: string;
+}
+
+export interface ImportAssetResponse {
+  asset_path: string;
+  url: string;
+  file_name: string;
+  size: number;
+  content_type: string;
+}
+
