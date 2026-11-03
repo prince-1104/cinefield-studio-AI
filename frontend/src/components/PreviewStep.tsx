@@ -47,11 +47,12 @@ export const PreviewStep: FC<PreviewStepProps> = ({
 
   const modelDisplayName = project.selected_video_model
     ? project.selected_video_model
+        .replace("dreamina-seedance-2-5-260628", "Seedance 2.5 Industrial")
         .replace("seedance-1-0-pro-250528", "Seedance 1.0 Pro")
         .replace("seedance-1-0-pro-fast-251015", "Seedance 1.0 Fast")
-        .replace("dreamina-seedance-2-0-260128", "Seedance 2.0")
-        .replace("gemini-omni-1.1-flash", "Gemini Omni Flash")
-    : "Seedance & Gemini Multi-Model";
+        .replace("dreamina-seedance-2-0-260128", "Seedance 2.0 Next-Gen")
+        .replace("gemini-omni-1.1-flash", "Gemini Omni Flash 1.1")
+    : "Seedance 2.5 & Gemini Multi-Model";
 
   return (
     <div className="preview-workspace">

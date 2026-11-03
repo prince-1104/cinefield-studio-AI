@@ -242,10 +242,8 @@ async def test_claude_planner_storyboard_generation():
     class MockMessage:
         content = [MockBlock()]
 
-    with patch("anthropic.AsyncAnthropic") as MockAnthropic:
-        mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=MockMessage())
-        MockAnthropic.return_value = mock_client
+    with patch.object(planner, "_call_via_httpx", new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = mock_storyboard_dict
 
         storyboard = await planner.plan_storyboard(
             product_name="Pexyl",
@@ -267,16 +265,60 @@ async def test_claude_planner_storyboard_generation():
 
 @pytest.mark.asyncio
 async def test_provider_registry_discovery():
-    """Verify registry lists Seedance and Gemini models."""
+    """Verify registry lists Seedance and Gemini models, with Seedance 2.5 default."""
     models = provider_registry.list_available_models()
     model_ids = [m.id for m in models]
+    assert "dreamina-seedance-2-5-260628" in model_ids
     assert "seedance-1-0-pro-250528" in model_ids
     assert "seedance-1-0-pro-fast-251015" in model_ids
     assert "gemini-omni-1.1-flash" in model_ids
 
-    provider, info = provider_registry.get_provider_for_model("seedance-1-0-pro-250528")
+    # Seedance 2.5 is default
+    s25 = next(m for m in models if m.id == "dreamina-seedance-2-5-260628")
+    assert s25.is_default is True
+    assert s25.name == "Seedance 2.5 Industrial"
+
+    provider, info = provider_registry.get_provider_for_model("dreamina-seedance-2-5-260628")
     assert provider.provider_id == "seedance"
-    assert info.name == "Seedance 1.0 Pro"
+    assert info.name == "Seedance 2.5 Industrial"
+
+
+@pytest.mark.asyncio
+async def test_seedance_2_5_task_submission_and_duration_mapping():
+    """Verify Seedance 2.5 payload formatting, duration boundaries, and watermark flag."""
+    provider = SeedanceVideoProvider(
+        api_key="test-key",
+        default_model="dreamina-seedance-2-5-260628",
+    )
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "id": "cgt-20261103-s25-test",
+        "model": "dreamina-seedance-2-5-260628",
+        "status": "queued",
+    }
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+
+        # Test 15-second duration mapping
+        res = await provider.generate_video(
+            prompt="Futuristic hypercar accelerating on coastal highway",
+            duration_seconds=15,
+            aspect_ratio="16:9",
+            model="dreamina-seedance-2-5-260628",
+        )
+        assert res.task_id == "cgt-20261103-s25-test"
+        assert res.model == "dreamina-seedance-2-5-260628"
+
+        call_args = mock_post.call_args
+        sent = call_args.kwargs["json"]
+        assert sent["model"] == "dreamina-seedance-2-5-260628"
+        assert sent["duration"] == 15
+        assert sent["watermark"] is False
+        assert sent["resolution"] == "1080p"
+        assert sent["content"][0]["text"] == "Futuristic hypercar accelerating on coastal highway"
 
 
 @pytest.mark.asyncio

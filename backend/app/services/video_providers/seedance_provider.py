@@ -25,6 +25,24 @@ class SeedanceVideoProvider(BaseVideoProvider):
 
     MODELS: list[VideoModelInfo] = [
         VideoModelInfo(
+            id="dreamina-seedance-2-5-260628",
+            name="Seedance 2.5 Industrial",
+            provider="seedance",
+            provider_name="ByteDance Seedance",
+            description="Latest flagship industrial-grade video foundation model with 30s generation, advanced multimodal conditioning, and camera motion physics.",
+            supported_aspect_ratios=["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+            supported_durations=[5, 10, 15, 30],
+            default_duration=5,
+            is_default=True,
+            capabilities=[
+                "Native 1080p Resolution",
+                "Long-Form Up to 30s",
+                "Advanced Reference Image Conditioning",
+                "Cinematic Camera Motion",
+                "High Frame Stability",
+            ],
+        ),
+        VideoModelInfo(
             id="seedance-1-0-pro-250528",
             name="Seedance 1.0 Pro",
             provider="seedance",
@@ -33,7 +51,7 @@ class SeedanceVideoProvider(BaseVideoProvider):
             supported_aspect_ratios=["16:9", "9:16"],
             supported_durations=[5, 10],
             default_duration=5,
-            is_default=True,
+            is_default=False,
             capabilities=["1080p Resolution", "First-Frame Image Conditioning", "Camera Motion Control"],
         ),
         VideoModelInfo(
@@ -67,11 +85,13 @@ class SeedanceVideoProvider(BaseVideoProvider):
         api_key: str | None = None,
         resource_id: str | None = None,
         base_url: str | None = None,
+        default_model: str | None = None,
         timeout_seconds: float | None = None,
     ) -> None:
-        self.api_key = (api_key or settings.SEEDANCE_API_KEY).strip()
-        self.resource_id = (resource_id or settings.SEEDANCE_RESOURCE_ID).strip()
-        self.base_url = (base_url or settings.SEEDANCE_BASE_URL).rstrip("/")
+        self.api_key = api_key.strip() if api_key is not None else settings.SEEDANCE_API_KEY.strip()
+        self.resource_id = resource_id.strip() if resource_id is not None else settings.SEEDANCE_RESOURCE_ID.strip()
+        self.base_url = (base_url if base_url is not None else settings.SEEDANCE_BASE_URL).rstrip("/")
+        self.default_model = (default_model if default_model is not None else settings.SEEDANCE_DEFAULT_MODEL).strip()
         self.timeout = timeout_seconds or settings.PROVIDER_REQUEST_TIMEOUT
 
     @property
@@ -83,7 +103,46 @@ class SeedanceVideoProvider(BaseVideoProvider):
         return "ByteDance Seedance"
 
     def get_models(self) -> list[VideoModelInfo]:
-        return self.MODELS
+        """Return available Seedance models with is_default accurately reflecting configuration."""
+        configured_default = self.default_model or settings.SEEDANCE_DEFAULT_MODEL
+        known_ids = {m.id for m in self.MODELS}
+
+        models_list: list[VideoModelInfo] = []
+        for m in self.MODELS:
+            models_list.append(
+                VideoModelInfo(
+                    id=m.id,
+                    name=m.name,
+                    provider=m.provider,
+                    provider_name=m.provider_name,
+                    description=m.description,
+                    supported_aspect_ratios=m.supported_aspect_ratios,
+                    supported_durations=m.supported_durations,
+                    default_duration=m.default_duration,
+                    is_default=(m.id == configured_default),
+                    capabilities=m.capabilities,
+                )
+            )
+
+        # If configured_default is a custom endpoint (e.g. ep-...) or custom ID not in MODELS, add it
+        if configured_default and configured_default not in known_ids:
+            models_list.insert(
+                0,
+                VideoModelInfo(
+                    id=configured_default,
+                    name=f"Custom Seedance ({configured_default[:16]})",
+                    provider=self.provider_id,
+                    provider_name=self.name,
+                    description=f"Configured custom ModelArk model: {configured_default}",
+                    supported_aspect_ratios=["16:9", "9:16", "1:1"],
+                    supported_durations=[5, 10, 15, 30],
+                    default_duration=5,
+                    is_default=True,
+                    capabilities=["ModelArk Endpoint", "Custom Inference"],
+                ),
+            )
+
+        return models_list
 
     def _get_headers(self) -> dict[str, str]:
         if not self.api_key:
@@ -107,7 +166,7 @@ class SeedanceVideoProvider(BaseVideoProvider):
         # If a dedicated ModelArk endpoint ID (e.g. ep-2025...) is set as resource_id, use it
         if self.resource_id and self.resource_id.startswith("ep-"):
             return self.resource_id
-        return settings.SEEDANCE_DEFAULT_MODEL
+        return self.default_model or settings.SEEDANCE_DEFAULT_MODEL
 
     async def generate_video(
         self,
@@ -145,7 +204,15 @@ class SeedanceVideoProvider(BaseVideoProvider):
 
         # Ratio formatting
         formatted_ratio = "16:9" if aspect_ratio in ("16:9", "landscape") else "9:16"
-        valid_duration = 10 if duration_seconds >= 8 else 5
+        # Seedance 2.5 supports native durations 5, 10, 15, 30
+        if duration_seconds >= 25:
+            valid_duration = 30
+        elif duration_seconds >= 12:
+            valid_duration = 15
+        elif duration_seconds >= 8:
+            valid_duration = 10
+        else:
+            valid_duration = 5
 
         payload: dict[str, Any] = {
             "model": resolved_model,
@@ -153,6 +220,7 @@ class SeedanceVideoProvider(BaseVideoProvider):
             "resolution": "1080p",
             "ratio": formatted_ratio,
             "duration": valid_duration,
+            "watermark": False,
         }
 
         if parameters:
@@ -246,7 +314,15 @@ class SeedanceVideoProvider(BaseVideoProvider):
 
         raw_status = (data.get("status") or "").lower()
         content = data.get("content") or {}
-        video_url = content.get("video_url") or (data.get("video") or {}).get("url")
+        video_url = None
+        if isinstance(content, dict):
+            video_url = content.get("video_url") or (content.get("video") or {}).get("url")
+        elif isinstance(content, list) and len(content) > 0:
+            first_item = content[0]
+            if isinstance(first_item, dict):
+                video_url = first_item.get("video_url") or (first_item.get("video") or {}).get("url")
+        if not video_url:
+            video_url = (data.get("video") or {}).get("url")
 
         if raw_status in ("succeeded", "completed"):
             return GenerationStatusResponse(

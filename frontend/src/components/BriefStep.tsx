@@ -1,6 +1,6 @@
-import { useState, type FC, type FormEvent, type ChangeEvent } from "react";
+import { useState, useEffect, type FC, type FormEvent, type ChangeEvent } from "react";
 import { ProjectCreate, ProjectDetail } from "../types";
-import { createProject, generateScript, uploadAssets } from "../api/client";
+import { createProject, generateScript, uploadAssets, getVideoModels } from "../api/client";
 import {
   FileText,
   ImagePlus,
@@ -33,9 +33,23 @@ export const BriefStep: FC<BriefStepProps> = ({
     target_duration: 60,
     shot_count: 8,
     aspect_ratio: "16:9",
-    selected_video_model: "seedance-1-0-pro-250528",
-    selected_video_provider: "seedance",
   });
+
+  // Fetch available models dynamically from backend to use configured default model
+  useEffect(() => {
+    getVideoModels()
+      .then((models) => {
+        const defaultModel = models.find((m) => m.is_default) || models[0];
+        if (defaultModel) {
+          setFormData((prev) => ({
+            ...prev,
+            selected_video_model: defaultModel.id,
+            selected_video_provider: defaultModel.provider,
+          }));
+        }
+      })
+      .catch((err) => console.warn("Failed to fetch initial video models:", err));
+  }, []);
 
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "9:16">("16:9");
   const [targetDuration, setTargetDuration] = useState<number>(60);
@@ -71,7 +85,8 @@ export const BriefStep: FC<BriefStepProps> = ({
   };
 
   const handleLoadPexylPreset = () => {
-    setFormData({
+    setFormData((prev) => ({
+      ...prev,
       product_name: "Pexyl.ai",
       brief: "Where every story becomes a production. An AI-native cinematic engine empowering creators and enterprises to architect micro-dramas, cinema, music videos, and premium commercials with multimodal continuity.",
       audience: "Filmmakers, creative directors, enterprise advertisers, and storytellers demanding cinematic production value",
@@ -80,9 +95,7 @@ export const BriefStep: FC<BriefStepProps> = ({
       target_duration: 60,
       shot_count: 8,
       aspect_ratio: "16:9",
-      selected_video_model: "seedance-1-0-pro-250528",
-      selected_video_provider: "seedance",
-    });
+    }));
     setTargetDuration(60);
     setShotCount(8);
     setAspectRatio("16:9");

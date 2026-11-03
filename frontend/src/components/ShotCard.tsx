@@ -97,11 +97,13 @@ export const ShotCard: FC<ShotCardProps> = ({
     : `${shot.target_duration.toFixed(1)}s`;
 
   const modelLabel = shot.model
-    ? shot.model.replace("seedance-1-0-pro-250528", "Seedance 1.0 Pro")
+    ? shot.model
+        .replace("dreamina-seedance-2-5-260628", "Seedance 2.5 Industrial")
+        .replace("seedance-1-0-pro-250528", "Seedance 1.0 Pro")
         .replace("seedance-1-0-pro-fast-251015", "Seedance 1.0 Fast")
-        .replace("dreamina-seedance-2-0-260128", "Seedance 2.0")
-        .replace("gemini-omni-1.1-flash", "Gemini Omni Flash")
-    : (shot.provider === "gemini" ? "Gemini Omni Flash" : "Seedance 1.0 Pro");
+        .replace("dreamina-seedance-2-0-260128", "Seedance 2.0 Next-Gen")
+        .replace("gemini-omni-1.1-flash", "Gemini Omni Flash 1.1")
+    : (shot.provider === "gemini" ? "Gemini Omni Flash 1.1" : "Seedance 2.5 Industrial");
 
   return (
     <div className="shot-production-card">

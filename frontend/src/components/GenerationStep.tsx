@@ -42,7 +42,7 @@ export const GenerationStep: FC<GenerationStepProps> = ({
   const [generatingAll, setGeneratingAll] = useState(false);
   const [models, setModels] = useState<VideoModelInfo[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>(
-    project.selected_video_model || "seedance-1-0-pro-250528"
+    project.selected_video_model || ""
   );
   const [switchingModel, setSwitchingModel] = useState(false);
 
@@ -64,7 +64,11 @@ export const GenerationStep: FC<GenerationStepProps> = ({
 
   const selectedModel = models.find((m) => m.id === selectedModelId) || {
     id: selectedModelId,
-    name: selectedModelId.includes("seedance") ? "Seedance 1.0 Pro" : "Gemini Omni Flash 1.1",
+    name: selectedModelId.includes("2-5")
+      ? "Seedance 2.5 Industrial"
+      : selectedModelId.includes("seedance")
+      ? "Seedance 1.0 Pro"
+      : "Gemini Omni Flash 1.1",
     provider: selectedModelId.includes("seedance") ? "seedance" : "gemini",
     provider_name: selectedModelId.includes("seedance") ? "ByteDance Seedance" : "Google DeepMind",
     description: "Cinematic AI video generation model with temporal consistency and camera motion physics.",

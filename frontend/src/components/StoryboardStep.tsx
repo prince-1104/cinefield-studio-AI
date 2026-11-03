@@ -27,7 +27,7 @@ export const StoryboardStep: FC<StoryboardStepProps> = ({
   const [approving, setApproving] = useState(false);
   const [models, setModels] = useState<VideoModelInfo[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>(
-    project.selected_video_model || "seedance-1-0-pro-250528"
+    project.selected_video_model || ""
   );
 
   useEffect(() => {

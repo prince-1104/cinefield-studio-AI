@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     SEEDANCE_API_KEY: str = ""
     SEEDANCE_RESOURCE_ID: str = ""
     SEEDANCE_BASE_URL: str = "https://ark.ap-southeast.bytepluses.com/api/v3"
-    SEEDANCE_DEFAULT_MODEL: str = "seedance-1-0-pro-250528"
+    SEEDANCE_DEFAULT_MODEL: str = "dreamina-seedance-2-5-260628"
 
     # --- Google Gemini – text planning & video ---
     GEMINI_API_KEY: str = ""
