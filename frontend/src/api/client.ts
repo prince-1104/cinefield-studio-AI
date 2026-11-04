@@ -124,8 +124,13 @@ export async function uploadAssets(
   return res.data;
 }
 
-export async function generateScript(projectId: string): Promise<JobResponse> {
-  const res = await api.post<JobResponse>(`/projects/${projectId}/generate-script`);
+export async function generateScript(
+  projectId: string,
+  forceTemplate: boolean = false
+): Promise<JobResponse> {
+  const res = await api.post<JobResponse>(`/projects/${projectId}/generate-script`, null, {
+    params: { force_template: forceTemplate },
+  });
   return res.data;
 }
 

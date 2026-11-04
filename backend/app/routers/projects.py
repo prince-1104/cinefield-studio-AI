@@ -10,6 +10,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -94,10 +95,11 @@ async def upload_assets(
 @router.post("/{project_id}/generate-script", response_model=JobResponse)
 async def generate_script(
     project_id: uuid.UUID,
+    force_template: bool = Query(default=False),
     session: AsyncSession = Depends(get_session),
 ) -> JobResponse:
     """Trigger AI generation of the script and 3-shot storyboard."""
-    job = await project_service.request_script_generation(session, project_id)
+    job = await project_service.request_script_generation(session, project_id, force_template=force_template)
     return JobResponse.model_validate(job)
 
 

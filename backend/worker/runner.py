@@ -398,6 +398,9 @@ class JobRunner:
                                 s.completed_at = datetime.now(timezone.utc)
                                 s.error_message = str(exc)
                                 break
+                    elif err_job.job_type == JobType.PLAN_SCRIPT:
+                        err_job.project.stage = ProjectStage.FAILED
+                        err_job.project.current_stage_label = f"Planning failed: {exc}"[:128]
                     elif err_job.job_type == JobType.ASSEMBLE:
                         err_job.project.stage = ProjectStage.ASSEMBLY_FAILED
                         err_job.project.current_stage_label = f"Assembly failed: {exc}"
@@ -419,7 +422,10 @@ class JobRunner:
 
         planner_type = payload.get("planner") or settings.PLANNER_PROVIDER
         active_planner = self.planner
-        if planner_type == "claude" and settings.CLAUDE_API_KEY:
+        if payload.get("force_template"):
+            from worker.template_planner import TemplateCreativePlanner
+            active_planner = TemplateCreativePlanner()
+        elif planner_type == "claude" and settings.CLAUDE_API_KEY:
             active_planner = ClaudePlanner()
         elif planner_type == "gemini" and settings.GEMINI_API_KEY:
             active_planner = GeminiPlanner()
@@ -444,24 +450,43 @@ class JobRunner:
         if await self._is_job_cancelled(job.id):
             raise JobCancelledException("Storyboard planning cancelled by user before AI planner execution.")
 
+        project.current_stage_label = f"Architecting {target_dur}s Cinematic Arc..."
+        project.progress_percent = 10.0
+        await session.commit()
+
+        storyboard = None
         try:
             storyboard = await active_planner.plan_storyboard(**plan_kwargs)
         except Exception as e:
             if await self._is_job_cancelled(job.id):
                 raise JobCancelledException("Storyboard planning cancelled by user during execution.")
+            logger.warning(
+                f"Active planner {planner_type} failed ({e}), attempting secondary or fallback planners..."
+            )
             if active_planner != self.planner:
-                logger.warning(
-                    f"Active planner {planner_type} failed ({e}), falling back to default planner"
+                try:
+                    storyboard = await self.planner.plan_storyboard(**plan_kwargs)
+                except Exception as secondary_err:
+                    logger.warning(f"Default planner also failed: {secondary_err}")
+
+            if not storyboard:
+                logger.info(
+                    f"External AI planners unavailable ({e}). Invoking Built-in Cinematic Template Planner..."
                 )
-                storyboard = await self.planner.plan_storyboard(**plan_kwargs)
-            else:
-                raise
+                from worker.template_planner import TemplateCreativePlanner
+                template_planner = TemplateCreativePlanner()
+                storyboard = await template_planner.plan_storyboard(**plan_kwargs)
+                project.current_stage_label = f"Storyboard Generated via Built-in Director (Claude: {str(e)[:45]})"[:128]
 
         if await self._is_job_cancelled(job.id):
             logger.info(f"Job {job.id} was cancelled while planner was executing; discarding generated storyboard.")
             raise JobCancelledException("Storyboard planning cancelled; generated script discarded.")
 
         project.script = storyboard.script_summary
+        project.stage = ProjectStage.SCRIPT
+        project.progress_percent = 25.0
+        if not project.current_stage_label or "Architecting" in project.current_stage_label:
+            project.current_stage_label = f"Storyboard Complete ({len(storyboard.shots)} shots ready)"
         project.target_duration = target_dur
         project.shot_count = len(storyboard.shots)
         project.aspect_ratio = aspect_ratio

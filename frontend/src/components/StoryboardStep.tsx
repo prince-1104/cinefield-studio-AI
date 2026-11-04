@@ -1,7 +1,13 @@
 import { useState, useEffect, type FC } from "react";
 import { ProjectDetail, VideoModelInfo } from "../types";
 import { ShotCard } from "./ShotCard";
-import { approveStoryboard, getVideoModels, selectProjectModel, cancelProjectGeneration } from "../api/client";
+import {
+  approveStoryboard,
+  getVideoModels,
+  selectProjectModel,
+  cancelProjectGeneration,
+  generateScript,
+} from "../api/client";
 import {
   Clapperboard,
   ArrowLeft,
@@ -11,6 +17,9 @@ import {
   Cpu,
   Square,
   AlertTriangle,
+  AlertCircle,
+  RotateCcw,
+  Sparkles,
 } from "lucide-react";
 
 interface StoryboardStepProps {
@@ -33,6 +42,22 @@ export const StoryboardStep: FC<StoryboardStepProps> = ({
   );
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryMsg, setRetryMsg] = useState<string | null>(null);
+
+  const handleRetryPlanning = async (forceTemplate: boolean = false) => {
+    setIsRetrying(true);
+    setRetryMsg(null);
+    try {
+      await generateScript(project.id, forceTemplate);
+      setRetryMsg(forceTemplate ? "Synthesizing with Built-in Director..." : "Re-triggering AI Creative Director...");
+    } catch (err: any) {
+      console.error("Failed to retry storyboard generation:", err);
+      onError(err.response?.data?.detail || err.message || "Failed to retry generation");
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   useEffect(() => {
     getVideoModels()
@@ -53,6 +78,21 @@ export const StoryboardStep: FC<StoryboardStepProps> = ({
   const shotCount = project.shots ? project.shots.length : 0;
   const hasShots = shotCount > 0;
   const targetDur = project.target_duration || 60;
+
+  const planJob = [...(project.jobs || [])].reverse().find((j) => j.job_type === "PLAN_SCRIPT");
+  const isFailed =
+    planJob?.status === "FAILED" ||
+    project.stage === "FAILED" ||
+    Boolean(project.current_stage_label?.toLowerCase().includes("failed"));
+  const isCancelled = planJob?.status === "CANCELLED";
+  const errorMessage = planJob?.error_message || project.current_stage_label || "";
+  const isBalanceError =
+    errorMessage.toLowerCase().includes("credit balance") ||
+    errorMessage.toLowerCase().includes("insufficient");
+  const isAuthError =
+    errorMessage.toLowerCase().includes("unauthenticated") ||
+    errorMessage.toLowerCase().includes("api key not valid");
+
 
   const handleModelSelect = async (newModelId: string) => {
     setSelectedModelId(newModelId);
@@ -139,60 +179,247 @@ export const StoryboardStep: FC<StoryboardStepProps> = ({
       )}
 
       {/* Shots Grid or Waiting State */}
-      {!hasShots ? (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "3.5rem 2rem",
-            backgroundColor: "var(--bg-surface)",
-            borderRadius: "var(--radius-lg)",
-            border: "1px dashed var(--border-default)",
-          }}
-        >
-          <div className="pulse-spinner" style={{ margin: "0 auto 1.25rem auto" }} />
-          <h3 style={{ fontSize: "1.15rem", fontWeight: 600, marginBottom: "0.5rem" }}>
-            Architecting {targetDur}s Cinematic Arc...
-          </h3>
-          <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", maxWidth: "520px", margin: "0 auto 1.5rem auto", lineHeight: 1.5 }}>
-            Structuring scenes, camera movements, timeline windows, and narration lines tailored to your campaign brief.
-            This screen updates automatically via live stream.
-          </p>
-
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-            <span
+            {!hasShots ? (
+        isFailed ? (
+          /* =========================================================================
+             1. Real Error Report & Diagnostic Action Card
+             ========================================================================= */
+          <div
+            style={{
+              textAlign: "center",
+              padding: "3rem 2rem",
+              backgroundColor: "var(--bg-surface)",
+              borderRadius: "var(--radius-lg)",
+              border: "1px solid rgba(239, 68, 68, 0.35)",
+              boxShadow: "0 8px 30px rgba(0, 0, 0, 0.4)",
+            }}
+          >
+            <div
               style={{
-                fontSize: "0.75rem",
-                color: "#cbd5e1",
-                background: "rgba(139, 92, 246, 0.15)",
-                border: "1px solid rgba(139, 92, 246, 0.3)",
-                padding: "0.3rem 0.75rem",
-                borderRadius: "9999px",
-              }}
-            >
-              Stage: {project.stage} · {project.progress_percent}% Progress
-            </span>
-
-            <button
-              type="button"
-              className="btn-secondary-studio"
-              onClick={() => setShowCancelModal(true)}
-              style={{
-                borderColor: "rgba(239, 68, 68, 0.5)",
-                backgroundColor: "rgba(239, 68, 68, 0.12)",
-                color: "#f87171",
-                fontSize: "0.82rem",
-                padding: "0.45rem 1rem",
-                fontWeight: 600,
-                display: "inline-flex",
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                backgroundColor: "rgba(239, 68, 68, 0.15)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                display: "flex",
                 alignItems: "center",
-                gap: "0.4rem",
+                justifyContent: "center",
+                margin: "0 auto 1rem auto",
               }}
             >
-              <Square size={13} style={{ fill: "#f87171" }} />
-              <span>Stop Generation</span>
-            </button>
+              <AlertCircle size={26} style={{ color: "#f87171" }} />
+            </div>
+
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.5rem" }}>
+              <span
+                style={{
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  padding: "0.15rem 0.5rem",
+                  borderRadius: "4px",
+                  backgroundColor: "rgba(239, 68, 68, 0.2)",
+                  color: "#f87171",
+                  border: "1px solid rgba(239, 68, 68, 0.4)",
+                }}
+              >
+                Generation Interrupted
+              </span>
+              <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>Stage: {project.stage} · Job: FAILED</span>
+            </div>
+
+            <h3 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#f8fafc", marginBottom: "0.6rem" }}>
+              AI Creative Director Encountered an Issue
+            </h3>
+
+            <div
+              style={{
+                maxWidth: "680px",
+                margin: "0 auto 1.25rem auto",
+                padding: "0.85rem 1.15rem",
+                borderRadius: "8px",
+                backgroundColor: "rgba(15, 23, 42, 0.75)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                color: "#fca5a5",
+                fontSize: "0.82rem",
+                lineHeight: 1.5,
+                textAlign: "left",
+                fontFamily: "monospace",
+                wordBreak: "break-word",
+              }}
+            >
+              <strong>Reported Failure:</strong> {errorMessage || "Upstream AI provider error occurred during planning."}
+            </div>
+
+            <p
+              style={{
+                fontSize: "0.85rem",
+                color: "#cbd5e1",
+                maxWidth: "620px",
+                margin: "0 auto 1.5rem auto",
+                lineHeight: 1.55,
+              }}
+            >
+              {isBalanceError
+                ? "Your Anthropic Claude API account has an insufficient credit balance. You can recharge credits in your Anthropic Console, or click below to synthesize the storyboard instantly using our Built-in Cinematic Director (no external API credits needed)."
+                : isAuthError
+                ? "The configured AI model API key was rejected by the provider. Check your environment configuration or proceed immediately using the Built-in Cinematic Director."
+                : "The storyboard planning job halted due to an API error. You can retry with Claude or generate the complete cinematic timeline immediately using the Built-in Director."}
+            </p>
+
+            {retryMsg && (
+              <div
+                style={{
+                  fontSize: "0.82rem",
+                  color: "#38bdf8",
+                  marginBottom: "1rem",
+                  fontWeight: 600,
+                }}
+              >
+                {retryMsg}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="btn-primary-studio"
+                disabled={isRetrying}
+                onClick={() => handleRetryPlanning(true)}
+                style={{
+                  background: "linear-gradient(135deg, #8b5cf6, #3b82f6)",
+                  fontSize: "0.84rem",
+                  padding: "0.55rem 1.2rem",
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.45rem",
+                }}
+              >
+                <Sparkles size={14} />
+                <span>{isRetrying ? "Synthesizing..." : "Synthesize with Built-in Director"}</span>
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary-studio"
+                disabled={isRetrying}
+                onClick={() => handleRetryPlanning(false)}
+                style={{ fontSize: "0.84rem", padding: "0.55rem 1rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+              >
+                <RotateCcw size={14} />
+                <span>Retry Claude AI</span>
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary-studio"
+                onClick={onBackToBrief}
+                style={{ fontSize: "0.84rem", padding: "0.55rem 1rem" }}
+              >
+                <ArrowLeft size={14} />
+                <span>Edit Campaign Brief</span>
+              </button>
+            </div>
           </div>
-        </div>
+        ) : isCancelled ? (
+          /* =========================================================================
+             2. Cancelled State Card
+             ========================================================================= */
+          <div
+            style={{
+              textAlign: "center",
+              padding: "3rem 2rem",
+              backgroundColor: "var(--bg-surface)",
+              borderRadius: "var(--radius-lg)",
+              border: "1px dashed rgba(245, 158, 11, 0.4)",
+            }}
+          >
+            <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#fbbf24", marginBottom: "0.5rem" }}>
+              Storyboard Generation Cancelled
+            </div>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", maxWidth: "480px", margin: "0 auto 1.5rem auto" }}>
+              The storyboard planning job was cancelled by user request. You can re-run generation or edit your campaign brief.
+            </p>
+            <div style={{ display: "flex", justifyContent: "center", gap: "0.75rem" }}>
+              <button
+                type="button"
+                className="btn-primary-studio"
+                disabled={isRetrying}
+                onClick={() => handleRetryPlanning(false)}
+                style={{ fontSize: "0.84rem", padding: "0.5rem 1rem" }}
+              >
+                <RotateCcw size={14} />
+                <span>Restart Storyboard Generation</span>
+              </button>
+              <button
+                type="button"
+                className="btn-secondary-studio"
+                onClick={onBackToBrief}
+                style={{ fontSize: "0.84rem", padding: "0.5rem 1rem" }}
+              >
+                <ArrowLeft size={14} />
+                <span>Edit Campaign Brief</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* =========================================================================
+             3. Real Active Progress State (RUNNING / QUEUED)
+             ========================================================================= */
+          <div
+            style={{
+              textAlign: "center",
+              padding: "3.5rem 2rem",
+              backgroundColor: "var(--bg-surface)",
+              borderRadius: "var(--radius-lg)",
+              border: "1px dashed var(--border-default)",
+            }}
+          >
+            <div className="pulse-spinner" style={{ margin: "0 auto 1.25rem auto" }} />
+            <h3 style={{ fontSize: "1.15rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+              Architecting {targetDur}s Cinematic Arc...
+            </h3>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", maxWidth: "520px", margin: "0 auto 1.5rem auto", lineHeight: 1.5 }}>
+              {project.current_stage_label || "Structuring scenes, camera movements, timeline windows, and narration lines tailored to your campaign brief."}
+            </p>
+
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+              <span
+                style={{
+                  fontSize: "0.75rem",
+                  color: "#cbd5e1",
+                  background: "rgba(139, 92, 246, 0.15)",
+                  border: "1px solid rgba(139, 92, 246, 0.3)",
+                  padding: "0.3rem 0.75rem",
+                  borderRadius: "9999px",
+                }}
+              >
+                Stage: {project.stage} · {project.progress_percent || 10}% Progress · Job: {planJob?.status || "RUNNING"}
+              </span>
+
+              <button
+                type="button"
+                className="btn-secondary-studio"
+                onClick={() => setShowCancelModal(true)}
+                style={{
+                  borderColor: "rgba(239, 68, 68, 0.5)",
+                  backgroundColor: "rgba(239, 68, 68, 0.12)",
+                  color: "#f87171",
+                  fontSize: "0.82rem",
+                  padding: "0.45rem 1rem",
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                }}
+              >
+                <Square size={13} style={{ fill: "#f87171" }} />
+                <span>Stop Generation</span>
+              </button>
+            </div>
+          </div>
+        )
       ) : (
         <>
           <div className="shots-filmstrip-grid">

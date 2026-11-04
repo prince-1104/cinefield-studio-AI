@@ -184,6 +184,7 @@ async def save_uploaded_assets(
 async def request_script_generation(
     session: AsyncSession,
     project_id: uuid.UUID,
+    force_template: bool = False,
 ) -> Job:
     """Enqueue a PLAN_SCRIPT job with target duration and shot count."""
     project = await get_project(session, project_id)
@@ -207,6 +208,7 @@ async def request_script_generation(
             "shot_count": project.shot_count,
             "aspect_ratio": project.aspect_ratio,
             "product_image_path": project.product_image_path,
+            "force_template": force_template,
         },
     )
     return job

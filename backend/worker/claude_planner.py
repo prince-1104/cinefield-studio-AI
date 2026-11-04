@@ -186,7 +186,13 @@ class ClaudePlanner(CreativePlanner):
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, headers=headers, json=body)
-            resp.raise_for_status()
+            if resp.is_error:
+                try:
+                    err_json = resp.json()
+                    err_msg = err_json.get("error", {}).get("message") or resp.text
+                except Exception:
+                    err_msg = resp.text
+                raise RuntimeError(f"Anthropic Claude API error ({resp.status_code}): {err_msg}")
             data = resp.json()
 
             # Record Claude storyboard planning usage

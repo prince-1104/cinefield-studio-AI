@@ -195,10 +195,10 @@ async def test_production_vs_test_origin_separation():
     async with async_session_factory() as db_session:
         await seed_default_pricing(db_session)
 
-        # Overview for production should return 0 when there are no production records
-        prod_overview = await AIUsageService.get_overview_metrics(db_session, origin="production")
-        assert prod_overview["total_requests"] == 0
-        assert prod_overview["total_spend"] == 0.0
+        # Overview for production before test record
+        initial_prod = await AIUsageService.get_overview_metrics(db_session, origin="production")
+        initial_prod_requests = initial_prod["total_requests"]
+        initial_prod_spend = initial_prod["total_spend"]
 
         # Insert a test record explicitly
         test_rec = await AIUsageService.record_claude_usage(
@@ -213,10 +213,10 @@ async def test_production_vs_test_origin_separation():
         await db_session.commit()
 
         try:
-            # Production metrics still strictly 0
+            # Production metrics remain unaffected by test record
             prod_overview_after = await AIUsageService.get_overview_metrics(db_session, origin="production")
-            assert prod_overview_after["total_requests"] == 0
-            assert prod_overview_after["total_spend"] == 0.0
+            assert prod_overview_after["total_requests"] == initial_prod_requests
+            assert prod_overview_after["total_spend"] == initial_prod_spend
 
             # Test metrics include the test record
             test_overview = await AIUsageService.get_overview_metrics(db_session, origin="test")
