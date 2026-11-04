@@ -268,3 +268,54 @@ async def test_admin_csv_export():
         lines = res.text.strip().split("\n")
         assert len(lines) >= 1
         assert "Timestamp,Project ID,Shot ID" in lines[0] or "Timestamp" in lines[0]
+
+
+@pytest.mark.asyncio
+async def test_admin_usage_record_detail_and_content_inspection():
+    """Verify detailed usage record inspection endpoint returns media and prompt content."""
+    async with async_session_factory() as db_session:
+        await seed_default_pricing(db_session)
+        rec = await AIUsageService.record_seedance_usage(
+            session=db_session,
+            model="seedance-1-0-pro-250528",
+            operation="video_generation",
+            duration_seconds=5.0,
+            provider_task_id=f"task_inspect_{uuid.uuid4()}",
+            usage_origin="test",
+        )
+        await db_session.commit()
+        record_id = rec.id
+
+    app = create_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Fetch detailed record
+        res = await client.get(
+            f"/api/admin/usage/{record_id}",
+            headers={"X-Admin-Key": settings.ADMIN_API_KEY},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["id"] == str(record_id)
+        assert data["provider"] == "seedance"
+        assert data["model"] == "seedance-1-0-pro-250528"
+        assert data["billing_unit"] == "video_seconds"
+        assert data["media_type"] == "video"
+        assert "content_title" in data
+        assert "estimated_cost" in data
+
+        # Non-existent ID returns 404
+        bad_id = uuid.uuid4()
+        res_bad = await client.get(
+            f"/api/admin/usage/{bad_id}",
+            headers={"X-Admin-Key": settings.ADMIN_API_KEY},
+        )
+        assert res_bad.status_code == 404
+
+    # Cleanup
+    async with async_session_factory() as db_session:
+        r = await db_session.get(AIUsageRecord, record_id)
+        if r:
+            await db_session.delete(r)
+            await db_session.commit()
+

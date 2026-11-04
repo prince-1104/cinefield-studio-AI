@@ -20,6 +20,7 @@ import {
   ProjectCostMetric,
   ProjectDetailMetrics,
   PaginatedUsage,
+  AIUsageRecordDetail,
   ProjectCancellationResponse,
   ShotCancellationResponse,
   JobCancellationResponse,
@@ -336,6 +337,17 @@ export async function getAdminUsageLedger(
       limit: params.limit || 50,
       offset: params.offset || 0,
     },
+    headers: getAdminHeaders(adminKey),
+  });
+  return res.data;
+}
+
+
+export async function getAdminUsageDetail(
+  recordId: string,
+  adminKey?: string
+): Promise<AIUsageRecordDetail> {
+  const res = await api.get<AIUsageRecordDetail>(`/admin/usage/${recordId}`, {
     headers: getAdminHeaders(adminKey),
   });
   return res.data;

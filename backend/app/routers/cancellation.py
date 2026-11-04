@@ -90,3 +90,4 @@ async def cancel_project_shot_generation(
         provider_task_id=res["provider_task_id"],
         provider_cancellation_supported=res["provider_cancellation_supported"],
     )
+

@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.ai_usage import AIModelPricing, AIUsageRecord, BillingUnit, CostStatus, RequestStatus, UsageOrigin
 from app.models.project import Project
@@ -781,8 +782,13 @@ class AIUsageService:
         count_q = select(func.count()).select_from(query.subquery())
         total_count = (await session.execute(count_q)).scalar() or 0
 
-        # Paginated fetch
-        query = query.order_by(desc(AIUsageRecord.created_at)).limit(limit).offset(offset)
+        # Paginated fetch with joined project & shot for enriched context
+        query = (
+            query.options(selectinload(AIUsageRecord.project), selectinload(AIUsageRecord.shot))
+            .order_by(desc(AIUsageRecord.created_at))
+            .limit(limit)
+            .offset(offset)
+        )
         records = (await session.execute(query)).scalars().all()
         return list(records), total_count
 
@@ -864,3 +870,172 @@ class AIUsageService:
             ])
 
         return output.getvalue()
+
+    @classmethod
+    async def get_usage_record_detail(
+        cls,
+        session: AsyncSession,
+        record_id: uuid.UUID,
+    ) -> dict[str, Any] | None:
+        """Fetch comprehensive details for an AI usage record, including generated video/content."""
+        from app.models.shot import Shot
+        from app.models.job import Job
+
+        query = (
+            select(AIUsageRecord)
+            .where(AIUsageRecord.id == record_id)
+            .options(
+                selectinload(AIUsageRecord.project),
+                selectinload(AIUsageRecord.shot),
+                selectinload(AIUsageRecord.job),
+            )
+        )
+        record = (await session.execute(query)).scalar_one_or_none()
+        if not record:
+            return None
+
+        project = record.project
+        shot = record.shot
+        job = record.job
+
+        # Fallback shot lookup by provider_task_id if shot_id was not directly set
+        if not shot and record.provider_task_id:
+            shot = (
+                await session.execute(
+                    select(Shot).where(Shot.provider_job_id == record.provider_task_id).limit(1)
+                )
+            ).scalar_one_or_none()
+            if shot and not project:
+                project = await session.get(Project, shot.project_id)
+
+        # Build project dict
+        proj_dict = None
+        if project:
+            proj_dict = {
+                "id": str(project.id),
+                "product_name": project.product_name,
+                "brief": project.brief,
+                "audience": project.audience,
+                "tone": project.tone,
+                "cta": project.cta,
+                "target_duration": project.target_duration,
+                "shot_count": project.shot_count,
+                "aspect_ratio": project.aspect_ratio,
+                "stage": project.stage.value if hasattr(project.stage, "value") else str(project.stage),
+                "final_video_path": project.final_video_path,
+                "narration_path": project.narration_path,
+            }
+
+        # Build shot dict
+        shot_dict = None
+        if shot:
+            shot_dict = {
+                "id": str(shot.id),
+                "project_id": str(shot.project_id),
+                "shot_number": shot.shot_number,
+                "description": shot.description,
+                "visual_prompt": shot.visual_prompt,
+                "camera_motion": shot.camera_motion,
+                "transition": shot.transition,
+                "narration_text": shot.narration_text,
+                "video_path": shot.video_path,
+                "image_url": shot.image_url,
+                "status": shot.status.value if hasattr(shot.status, "value") else str(shot.status),
+                "actual_duration": shot.actual_duration,
+                "target_duration": shot.target_duration,
+                "provider_job_id": shot.provider_job_id,
+            }
+
+        # Build job dict
+        job_dict = None
+        if job:
+            job_dict = {
+                "id": str(job.id),
+                "job_type": job.job_type.value if hasattr(job.job_type, "value") else str(job.job_type),
+                "status": job.status.value if hasattr(job.status, "value") else str(job.status),
+                "payload": job.payload,
+                "result": job.result,
+                "error_message": job.error_message,
+                "attempt": job.attempt,
+            }
+
+        # Synthesize media_url, media_type, content_title, content_prompt, content_output
+        media_url = None
+        media_type = None
+        content_title = None
+        content_prompt = None
+        content_output = None
+
+        if record.billing_unit == BillingUnit.VIDEO_SECONDS.value or "video" in record.operation:
+            media_type = "video"
+            if shot and shot.video_path:
+                media_url = shot.video_path
+            elif project and project.final_video_path:
+                media_url = project.final_video_path
+
+            if shot:
+                content_title = f"Shot #{shot.shot_number}: {shot.description}"
+                content_prompt = shot.visual_prompt
+                content_output = shot.narration_text
+            else:
+                dur = record.video_duration_seconds or record.unit_quantity
+                content_title = f"{record.model} Video Clip ({dur}s)"
+                if job and job.payload:
+                    content_prompt = job.payload.get("prompt") or job.payload.get("visual_prompt")
+        elif "brief" in record.operation or "plan" in record.operation or "script" in record.operation or record.provider == "claude":
+            content_title = f"Creative Brief & Storyboard Planning ({record.provider.capitalize()})"
+            if job and job.payload:
+                content_prompt = job.payload.get("prompt") or job.payload.get("brief")
+            elif project:
+                content_prompt = project.brief
+            if project and project.script:
+                content_output = project.script
+            elif job and job.result:
+                content_output = job.result.get("script_summary") or str(job.result)
+        elif "tts" in record.operation or "narration" in record.operation or record.provider == "openai":
+            media_type = "audio"
+            if project and project.narration_path:
+                media_url = project.narration_path
+            content_title = "Voiceover Narration Synthesis"
+            if job and job.payload:
+                content_prompt = job.payload.get("text")
+            elif project:
+                content_prompt = project.script
+
+        return {
+            "id": record.id,
+            "project_id": record.project_id,
+            "shot_id": record.shot_id or (shot.id if shot else None),
+            "job_id": record.job_id,
+            "provider": record.provider,
+            "model": record.model,
+            "operation": record.operation,
+            "provider_request_id": record.provider_request_id,
+            "provider_task_id": record.provider_task_id,
+            "input_tokens": record.input_tokens,
+            "output_tokens": record.output_tokens,
+            "cached_input_tokens": record.cached_input_tokens,
+            "video_duration_seconds": float(record.video_duration_seconds) if record.video_duration_seconds else None,
+            "billing_unit": record.billing_unit,
+            "unit_quantity": float(record.unit_quantity),
+            "unit_price": float(record.unit_price),
+            "estimated_cost": float(record.estimated_cost),
+            "actual_cost": float(record.actual_cost) if record.actual_cost is not None else None,
+            "currency": record.currency,
+            "usage_origin": record.usage_origin,
+            "cost_status": record.cost_status,
+            "request_status": record.request_status,
+            "error_code": record.error_code,
+            "error_message": record.error_message,
+            "created_at": record.created_at,
+            "completed_at": record.completed_at,
+            "project": proj_dict,
+            "shot": shot_dict,
+            "job": job_dict,
+            "media_url": media_url,
+            "media_type": media_type,
+            "content_title": content_title,
+            "content_prompt": content_prompt,
+            "content_output": content_output,
+        }
+

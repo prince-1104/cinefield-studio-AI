@@ -16,6 +16,7 @@ from app.schemas.ai_usage import (
     AIModelPricingCreate,
     AIModelPricingResponse,
     AIUsageRecordResponse,
+    AIUsageRecordDetailResponse,
     ModelMetricsResponse,
     OverviewMetricsResponse,
     PaginatedUsageResponse,
@@ -231,6 +232,22 @@ async def export_usage_csv(
             "Cache-Control": "no-cache",
         },
     )
+
+
+@router.get("/usage/{record_id}", response_model=AIUsageRecordDetailResponse)
+async def get_usage_record_detail(
+    record_id: uuid.UUID,
+    _: bool = Depends(verify_admin_auth),
+    session: AsyncSession = Depends(get_session),
+) -> AIUsageRecordDetailResponse:
+    """Fetch complete context, prompt, output, and media for a specific AI usage ledger entry."""
+    data = await AIUsageService.get_usage_record_detail(session, record_id)
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Usage record {record_id} not found",
+        )
+    return AIUsageRecordDetailResponse(**data)
 
 
 @router.get("/pricing", response_model=list[AIModelPricingResponse])

@@ -6,6 +6,7 @@ import {
   ProjectCostMetric,
   ProjectDetailMetrics,
   AIUsageRecord,
+  AIUsageRecordDetail,
 } from "../../types";
 import {
   getAdminOverview,
@@ -16,6 +17,8 @@ import {
   getAdminUsageLedger,
   downloadAdminUsageCsv,
   reconcileBilling,
+  getAdminUsageDetail,
+  getArtifactUrl,
 } from "../../api/client";
 import {
   DollarSign,
@@ -33,10 +36,18 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldAlert,
+  Eye,
+  Copy,
+  Check,
+  FileText,
+  Volume2,
+  ExternalLink,
+  Sparkles,
 } from "lucide-react";
 
 interface AdminDashboardProps {
   onBackToStudio: () => void;
+  onSelectProject?: (projectId: string) => void;
 }
 
 // Safe numeric and formatting helpers to guard against nulls, undefined, or string Decimal types
@@ -54,7 +65,7 @@ const fmtTokens = (v: any): string => {
   return (num(v) / 1000).toFixed(1);
 };
 
-export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
+export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio, onSelectProject }) => {
   // Authentication State
   const [adminKey, setAdminKey] = useState<string>(
     localStorage.getItem("pexyl_admin_key") || "pexyl-admin-secret-2026"
@@ -87,6 +98,43 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [projectDetail, setProjectDetail] = useState<ProjectDetailMetrics | null>(null);
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
+
+  // AI Usage & Content Inspector State
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const [recordDetail, setRecordDetail] = useState<AIUsageRecordDetail | null>(null);
+  const [loadingRecordDetail, setLoadingRecordDetail] = useState<boolean>(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleInspectRecord = async (item: AIUsageRecord) => {
+    setSelectedRecordId(item.id);
+    setLoadingRecordDetail(true);
+    setCopiedKey(null);
+    try {
+      const detail = await getAdminUsageDetail(item.id, adminKey);
+      setRecordDetail(detail);
+    } catch (err) {
+      console.warn("Could not fetch detailed usage record from backend:", err);
+      setRecordDetail({
+        ...item,
+        usage_origin: item.usage_origin || "production",
+        media_url: item.video_path || null,
+        media_type: (item.billing_unit === "video_seconds" || item.operation.includes("video")) ? "video" : null,
+        content_title: item.shot_description
+          ? `Shot #${item.shot_number || 1}: ${item.shot_description}`
+          : `${item.provider.toUpperCase()} ${item.operation.replace(/_/g, " ")}`,
+        content_prompt: item.visual_prompt || null,
+        content_output: null,
+      } as AIUsageRecordDetail);
+    } finally {
+      setLoadingRecordDetail(false);
+    }
+  };
+
+  const handleCopy = (text: string, keyName: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(keyName);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
 
   // Reconciliation Modal
   const [reconcileModalOpen, setReconcileModalOpen] = useState<boolean>(false);
@@ -695,6 +743,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                     <th>Cost Type</th>
                     <th>Cost (USD)</th>
                     <th>Task / Request ID</th>
+                    <th>Inspect</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -710,7 +759,12 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                       );
                     })
                     .map((item) => (
-                    <tr key={item.id}>
+                    <tr
+                      key={item.id}
+                      className="clickable-ledger-row"
+                      onClick={() => handleInspectRecord(item)}
+                      title="Click to inspect generated video clip, prompt, or token breakdown"
+                    >
                       <td style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
                         {new Date(item.created_at).toLocaleString()}
                       </td>
@@ -743,7 +797,18 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                       <td style={{ fontSize: "0.78rem", fontWeight: 600, color: "#f1f5f9" }}>
                         {item.model}
                       </td>
-                      <td style={{ fontSize: "0.75rem", color: "#cbd5e1" }}>{item.operation}</td>
+                      <td style={{ fontSize: "0.75rem", color: "#cbd5e1" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                          {item.billing_unit === "video_seconds" || item.operation.includes("video") ? (
+                            <Film size={12} style={{ color: "#c084fc", flexShrink: 0 }} />
+                          ) : item.operation.includes("brief") || item.provider === "claude" ? (
+                            <FileText size={12} style={{ color: "#38bdf8", flexShrink: 0 }} />
+                          ) : item.operation.includes("narration") ? (
+                            <Volume2 size={12} style={{ color: "#34d399", flexShrink: 0 }} />
+                          ) : null}
+                          <span>{item.operation}</span>
+                        </div>
+                      </td>
                       <td>
                         {item.billing_unit === "video_seconds"
                           ? `${item.video_duration_seconds || item.unit_quantity}s video`
@@ -787,11 +852,35 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                       <td style={{ fontSize: "0.7rem", fontFamily: "monospace", color: "#64748b" }}>
                         {item.provider_task_id || item.provider_request_id || "—"}
                       </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="quick-toggle-btn"
+                          style={{
+                            padding: "0.2rem 0.5rem",
+                            fontSize: "0.72rem",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "0.3rem",
+                            color: "#38bdf8",
+                            borderColor: "rgba(56, 189, 248, 0.3)",
+                            backgroundColor: "rgba(56, 189, 248, 0.05)",
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleInspectRecord(item);
+                          }}
+                          title="Inspect video / prompt content"
+                        >
+                          <Eye size={12} />
+                          <span>Inspect</span>
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {(!ledgerItems || ledgerItems.length === 0) && (
                     <tr>
-                      <td colSpan={10} style={{ textAlign: "center", color: "#64748b", padding: "2rem" }}>
+                      <td colSpan={11} style={{ textAlign: "center", color: "#64748b", padding: "2rem" }}>
                         No AI usage recorded yet.
                       </td>
                     </tr>
@@ -908,6 +997,564 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
       {/* =========================================================================
           Reconciliation Invoice Modal
           ========================================================================= */}
+      
+      {/* =========================================================================
+          AI Usage & Generated Content Inspector Modal
+          ========================================================================= */}
+      {selectedRecordId && (
+        <div className="modal-backdrop" onClick={() => setSelectedRecordId(null)}>
+          <div
+            className="admin-modal-content"
+            style={{ maxWidth: "860px", width: "95%", maxHeight: "90vh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="admin-modal-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                <div
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "8px",
+                    background: "linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(56, 189, 248, 0.25))",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                  }}
+                >
+                  {recordDetail?.billing_unit === "video_seconds" || recordDetail?.operation?.includes("video") ? (
+                    <Film size={18} style={{ color: "#c084fc" }} />
+                  ) : recordDetail?.operation?.includes("narration") ? (
+                    <Volume2 size={18} style={{ color: "#34d399" }} />
+                  ) : (
+                    <Sparkles size={18} style={{ color: "#38bdf8" }} />
+                  )}
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "1.05rem", color: "#f8fafc", fontWeight: 700 }}>
+                    AI Spend & Generation Inspector
+                  </h3>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.2rem", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
+                      Ledger ID: <code style={{ color: "#cbd5e1" }}>{selectedRecordId.slice(0, 13)}...</code>
+                    </span>
+                    {recordDetail && (
+                      <>
+                        <span style={{ color: "#475569" }}>•</span>
+                        <span className="table-provider-pill" style={{ fontSize: "0.65rem", padding: "0.1rem 0.4rem" }}>
+                          {recordDetail.provider}
+                        </span>
+                        <span style={{ fontSize: "0.72rem", color: "#e2e8f0", fontWeight: 600 }}>
+                          {recordDetail.model}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "0.65rem",
+                            padding: "0.1rem 0.35rem",
+                            borderRadius: "4px",
+                            textTransform: "uppercase",
+                            backgroundColor:
+                              recordDetail.usage_origin === "production"
+                                ? "rgba(16, 185, 129, 0.15)"
+                                : "rgba(245, 158, 11, 0.15)",
+                            color: recordDetail.usage_origin === "production" ? "#34d399" : "#fbbf24",
+                            border: `1px solid ${
+                              recordDetail.usage_origin === "production"
+                                ? "rgba(16, 185, 129, 0.3)"
+                                : "rgba(245, 158, 11, 0.3)"
+                            }`,
+                          }}
+                        >
+                          {recordDetail.usage_origin}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="asset-remove-btn"
+                onClick={() => setSelectedRecordId(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {loadingRecordDetail || !recordDetail ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "4rem 2rem", gap: "1rem" }}>
+                <div className="pulse-spinner" />
+                <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>Loading generated content and media context...</span>
+              </div>
+            ) : (
+              <div className="admin-modal-body" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+                {/* 1. Primary Generated Media / Video */}
+                {(recordDetail.billing_unit === "video_seconds" || recordDetail.operation?.includes("video") || recordDetail.media_type === "video") && (
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <Film size={15} style={{ color: "#c084fc" }} />
+                        <span style={{ fontSize: "0.88rem", fontWeight: 700, color: "#f8fafc" }}>
+                          {recordDetail.content_title || `Generated Video Clip (${recordDetail.video_duration_seconds || recordDetail.unit_quantity}s)`}
+                        </span>
+                      </div>
+                      {recordDetail.media_url && (
+                        <a
+                          href={getArtifactUrl(recordDetail.media_url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          download
+                          className="quick-toggle-btn"
+                          style={{
+                            fontSize: "0.74rem",
+                            padding: "0.22rem 0.55rem",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "0.3rem",
+                            color: "#c084fc",
+                            borderColor: "rgba(192, 132, 252, 0.35)",
+                          }}
+                        >
+                          <Download size={12} />
+                          <span>Download MP4</span>
+                        </a>
+                      )}
+                    </div>
+
+                    {recordDetail.media_url ? (
+                      <div
+                        style={{
+                          position: "relative",
+                          borderRadius: "10px",
+                          overflow: "hidden",
+                          background: "#080c14",
+                          border: "1px solid rgba(168, 85, 247, 0.3)",
+                          boxShadow: "0 8px 30px rgba(0, 0, 0, 0.5)",
+                          maxHeight: "360px",
+                          display: "flex",
+                          justifyContent: "center",
+                          alignItems: "center",
+                        }}
+                      >
+                        <video
+                          controls
+                          autoPlay
+                          loop
+                          playsInline
+                          src={getArtifactUrl(recordDetail.media_url)}
+                          style={{ width: "100%", maxHeight: "360px", objectFit: "contain", display: "block" }}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          padding: "1.5rem",
+                          borderRadius: "10px",
+                          backgroundColor: "rgba(30, 41, 59, 0.4)",
+                          border: "1px dashed rgba(255, 255, 255, 0.12)",
+                          textAlign: "center",
+                        }}
+                      >
+                        <Film size={28} style={{ color: "#64748b", margin: "0 auto 0.5rem auto", display: "block" }} />
+                        <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "#cbd5e1" }}>
+                          {recordDetail.content_title || "Video Generation Record"}
+                        </div>
+                        <p style={{ margin: "0.3rem 0 0 0", fontSize: "0.78rem", color: "#94a3b8" }}>
+                          {recordDetail.usage_origin === "test"
+                            ? "Test harness simulation record — no persistent video file was written to disk."
+                            : "Video file was either removed, expired, or was generated in a detached session."}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Audio Media Player if voiceover */}
+                {(recordDetail.operation?.includes("narration") || recordDetail.media_type === "audio") && (
+                  <div
+                    style={{
+                      padding: "1rem",
+                      borderRadius: "10px",
+                      background: "rgba(30, 41, 59, 0.4)",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.6rem" }}>
+                      <Volume2 size={16} style={{ color: "#34d399" }} />
+                      <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#f8fafc" }}>
+                        Synthesized Voiceover Narration
+                      </span>
+                    </div>
+                    {recordDetail.media_url ? (
+                      <audio controls src={getArtifactUrl(recordDetail.media_url)} style={{ width: "100%" }} />
+                    ) : (
+                      <span style={{ fontSize: "0.78rem", color: "#94a3b8" }}>
+                        Audio file not retained on disk.
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* 2. Content Prompt / Brief on which credits were spent */}
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>
+                    <span
+                      style={{
+                        fontSize: "0.76rem",
+                        fontWeight: 700,
+                        color: "#94a3b8",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                      }}
+                    >
+                      <Sparkles size={13} style={{ color: "#c084fc" }} />
+                      {recordDetail.operation?.includes("brief") || recordDetail.provider === "claude"
+                        ? "Creative Prompt & Narrative Brief Input"
+                        : "Visual Synthesis Prompt (Sent to Model)"}
+                    </span>
+                    {(recordDetail.content_prompt || recordDetail.shot?.visual_prompt || recordDetail.project?.brief) && (
+                      <button
+                        type="button"
+                        className="quick-toggle-btn"
+                        style={{ fontSize: "0.7rem", padding: "0.15rem 0.45rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
+                        onClick={() =>
+                          handleCopy(
+                            recordDetail.content_prompt || recordDetail.shot?.visual_prompt || recordDetail.project?.brief || "",
+                            "prompt"
+                          )
+                        }
+                      >
+                        {copiedKey === "prompt" ? (
+                          <>
+                            <Check size={11} style={{ color: "#34d399" }} /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={11} /> Copy Prompt
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      padding: "0.85rem 1rem",
+                      borderRadius: "8px",
+                      backgroundColor: "rgba(15, 23, 42, 0.65)",
+                      border: "1px solid rgba(255, 255, 255, 0.08)",
+                      fontSize: "0.82rem",
+                      lineHeight: 1.55,
+                      color: "#f1f5f9",
+                      whiteSpace: "pre-wrap",
+                      maxHeight: "180px",
+                      overflowY: "auto",
+                      fontFamily: "var(--font-sans)",
+                    }}
+                  >
+                    {recordDetail.content_prompt ||
+                      recordDetail.shot?.visual_prompt ||
+                      recordDetail.project?.brief ||
+                      "No explicit text prompt associated with this record."}
+                  </div>
+                </div>
+
+                {/* Creative Scene Breakdown & Direction (if shot metadata is available) */}
+                {recordDetail.shot && (
+                  <div>
+                    <span
+                      style={{
+                        fontSize: "0.76rem",
+                        fontWeight: 700,
+                        color: "#94a3b8",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        display: "block",
+                        marginBottom: "0.4rem",
+                      }}
+                    >
+                      Scene Direction & Cinema Settings
+                    </span>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      <div style={{ padding: "0.6rem 0.75rem", borderRadius: "6px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                        <span style={{ color: "#94a3b8", display: "block", fontSize: "0.68rem" }}>Shot Number</span>
+                        <strong style={{ color: "#f8fafc", fontSize: "0.82rem" }}>Shot #{recordDetail.shot.shot_number}</strong>
+                      </div>
+                      {recordDetail.shot.camera_motion && (
+                        <div style={{ padding: "0.6rem 0.75rem", borderRadius: "6px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                          <span style={{ color: "#94a3b8", display: "block", fontSize: "0.68rem" }}>Camera Motion</span>
+                          <strong style={{ color: "#f8fafc", fontSize: "0.82rem" }}>{recordDetail.shot.camera_motion}</strong>
+                        </div>
+                      )}
+                      {recordDetail.shot.transition && (
+                        <div style={{ padding: "0.6rem 0.75rem", borderRadius: "6px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                          <span style={{ color: "#94a3b8", display: "block", fontSize: "0.68rem" }}>Transition</span>
+                          <strong style={{ color: "#f8fafc", fontSize: "0.82rem" }}>{recordDetail.shot.transition}</strong>
+                        </div>
+                      )}
+                      {(recordDetail.shot.actual_duration || recordDetail.shot.target_duration) && (
+                        <div style={{ padding: "0.6rem 0.75rem", borderRadius: "6px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                          <span style={{ color: "#94a3b8", display: "block", fontSize: "0.68rem" }}>Duration</span>
+                          <strong style={{ color: "#f8fafc", fontSize: "0.82rem" }}>
+                            {recordDetail.shot.actual_duration || recordDetail.shot.target_duration}s
+                          </strong>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Generated Content Output / Script (if Claude brief or storyboard) */}
+                {recordDetail.content_output && (
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>
+                      <span
+                        style={{
+                          fontSize: "0.76rem",
+                          fontWeight: 700,
+                          color: "#94a3b8",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.35rem",
+                        }}
+                      >
+                        <FileText size={13} style={{ color: "#38bdf8" }} />
+                        Generated Creative Script / Storyboard Output
+                      </span>
+                      <button
+                        type="button"
+                        className="quick-toggle-btn"
+                        style={{ fontSize: "0.7rem", padding: "0.15rem 0.45rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
+                        onClick={() => handleCopy(recordDetail.content_output!, "output")}
+                      >
+                        {copiedKey === "output" ? (
+                          <>
+                            <Check size={11} style={{ color: "#34d399" }} /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={11} /> Copy Output
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div
+                      style={{
+                        padding: "0.85rem 1rem",
+                        borderRadius: "8px",
+                        backgroundColor: "rgba(15, 23, 42, 0.65)",
+                        border: "1px solid rgba(255, 255, 255, 0.08)",
+                        fontSize: "0.82rem",
+                        lineHeight: 1.55,
+                        color: "#f1f5f9",
+                        whiteSpace: "pre-wrap",
+                        maxHeight: "160px",
+                        overflowY: "auto",
+                      }}
+                    >
+                      {recordDetail.content_output}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. Project Campaign Context */}
+                {recordDetail.project && (
+                  <div
+                    style={{
+                      padding: "0.75rem 1rem",
+                      borderRadius: "8px",
+                      background: "rgba(56, 189, 248, 0.05)",
+                      border: "1px solid rgba(56, 189, 248, 0.2)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: "0.6rem",
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: "0.68rem", color: "#38bdf8", textTransform: "uppercase", fontWeight: 700, display: "block" }}>
+                        Project Campaign
+                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "#f8fafc" }}>
+                          {recordDetail.project.product_name || "Untitled Film"}
+                        </span>
+                        <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                          ({recordDetail.project.target_duration || 60}s • {recordDetail.project.aspect_ratio || "16:9"} • {recordDetail.project.stage})
+                        </span>
+                      </div>
+                    </div>
+                    {onSelectProject && (
+                      <button
+                        type="button"
+                        className="btn-secondary-studio"
+                        style={{ fontSize: "0.75rem", padding: "0.3rem 0.65rem", gap: "0.35rem" }}
+                        onClick={() => {
+                          setSelectedRecordId(null);
+                          onSelectProject(recordDetail.project!.id);
+                        }}
+                      >
+                        <ExternalLink size={12} />
+                        <span>Open in Creative Studio</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* 4. Financial & Accounting Breakdown */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: "0.76rem",
+                      fontWeight: 700,
+                      color: "#94a3b8",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                      display: "block",
+                      marginBottom: "0.4rem",
+                    }}
+                  >
+                    Financial Accounting Breakdown
+                  </span>
+                  <div className="admin-kpi-grid">
+                    <div className="admin-kpi-card highlight">
+                      <span className="kpi-label">Ledger Spend</span>
+                      <div className="kpi-value">
+                        ${fmtCost(recordDetail.actual_cost != null ? recordDetail.actual_cost : recordDetail.estimated_cost, 5)}
+                      </div>
+                      <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
+                        Status: <strong style={{ color: "#38bdf8" }}>{recordDetail.cost_status}</strong> ({recordDetail.currency})
+                      </span>
+                    </div>
+
+                    <div className="admin-kpi-card">
+                      <span className="kpi-label">Consumption Measured</span>
+                      <div className="kpi-value" style={{ fontSize: "1.05rem" }}>
+                        {recordDetail.billing_unit === "video_seconds"
+                          ? `${recordDetail.video_duration_seconds || recordDetail.unit_quantity}s`
+                          : `${recordDetail.unit_quantity}`}
+                      </div>
+                      <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
+                        {recordDetail.billing_unit === "tokens" && recordDetail.input_tokens != null
+                          ? `In: ${recordDetail.input_tokens} / Out: ${recordDetail.output_tokens || 0}`
+                          : recordDetail.billing_unit}
+                      </span>
+                    </div>
+
+                    <div className="admin-kpi-card">
+                      <span className="kpi-label">Effective Unit Rate</span>
+                      <div className="kpi-value" style={{ fontSize: "1.05rem" }}>
+                        ${fmtCost(recordDetail.unit_price, 6)}
+                      </div>
+                      <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
+                        per {recordDetail.billing_unit === "video_seconds" ? "second" : "million tokens"}
+                      </span>
+                    </div>
+
+                    <div className="admin-kpi-card">
+                      <span className="kpi-label">Execution Status</span>
+                      <div className="kpi-value" style={{ fontSize: "1rem" }}>
+                        <span className={`table-status-tag ${recordDetail.request_status === "SUCCESS" ? "success" : "failed"}`}>
+                          {recordDetail.request_status}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
+                        Origin: {recordDetail.usage_origin}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5. Technical Identifiers & Reconciliation Action */}
+                <div
+                  style={{
+                    padding: "0.85rem 1rem",
+                    borderRadius: "8px",
+                    background: "rgba(255, 255, 255, 0.02)",
+                    border: "1px solid rgba(255, 255, 255, 0.06)",
+                    fontSize: "0.75rem",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                    <span style={{ fontWeight: 600, color: "#94a3b8" }}>Audit Identifiers & Timestamp</span>
+                    {recordDetail.cost_status === "ESTIMATED" && recordDetail.provider_task_id && (
+                      <button
+                        type="button"
+                        className="quick-toggle-btn"
+                        style={{ fontSize: "0.72rem", padding: "0.2rem 0.5rem", color: "#10b981", borderColor: "rgba(16, 185, 129, 0.3)" }}
+                        onClick={() => {
+                          setReconcileTaskId(recordDetail.provider_task_id || "");
+                          setReconcileCost(fmtCost(recordDetail.estimated_cost, 4));
+                          setSelectedRecordId(null);
+                          setReconcileModalOpen(true);
+                        }}
+                      >
+                        <CheckCircle2 size={12} /> Reconcile with Invoice
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.5rem" }}>
+                    {recordDetail.provider_task_id && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.2)", padding: "0.35rem 0.5rem", borderRadius: "4px" }}>
+                        <span style={{ color: "#64748b" }}>Provider Task ID:</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                          <code style={{ color: "#38bdf8", fontFamily: "monospace" }}>{recordDetail.provider_task_id}</code>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(recordDetail.provider_task_id!, "taskId")}
+                            style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: "2px" }}
+                          >
+                            {copiedKey === "taskId" ? <Check size={11} style={{ color: "#34d399" }} /> : <Copy size={11} />}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {recordDetail.provider_request_id && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.2)", padding: "0.35rem 0.5rem", borderRadius: "4px" }}>
+                        <span style={{ color: "#64748b" }}>Provider Req ID:</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                          <code style={{ color: "#cbd5e1", fontFamily: "monospace" }}>{recordDetail.provider_request_id}</code>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(recordDetail.provider_request_id!, "reqId")}
+                            style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: "2px" }}
+                          >
+                            {copiedKey === "reqId" ? <Check size={11} style={{ color: "#34d399" }} /> : <Copy size={11} />}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.2)", padding: "0.35rem 0.5rem", borderRadius: "4px" }}>
+                      <span style={{ color: "#64748b" }}>Created At:</span>
+                      <span style={{ color: "#e2e8f0" }}>{new Date(recordDetail.created_at).toLocaleString()}</span>
+                    </div>
+                    {recordDetail.completed_at && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.2)", padding: "0.35rem 0.5rem", borderRadius: "4px" }}>
+                        <span style={{ color: "#64748b" }}>Completed At:</span>
+                        <span style={{ color: "#e2e8f0" }}>{new Date(recordDetail.completed_at).toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {reconcileModalOpen && (
         <div className="modal-backdrop" onClick={() => setReconcileModalOpen(false)}>
           <div className="admin-modal-content" style={{ maxWidth: "500px" }} onClick={(e) => e.stopPropagation()}>

@@ -65,6 +65,55 @@ class AIUsageRecordResponse(BaseModel):
     created_at: datetime
     completed_at: datetime | None = None
 
+    # Contextual enriched fields
+    project_name: str | None = None
+    shot_number: int | None = None
+    shot_description: str | None = None
+    visual_prompt: str | None = None
+    video_path: str | None = None
+    has_media: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class AIUsageRecordDetailResponse(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID | None = None
+    shot_id: uuid.UUID | None = None
+    job_id: uuid.UUID | None = None
+    provider: str
+    model: str
+    operation: str
+    provider_request_id: str | None = None
+    provider_task_id: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cached_input_tokens: int | None = None
+    video_duration_seconds: float | None = None
+    billing_unit: str
+    unit_quantity: float
+    unit_price: float
+    estimated_cost: float
+    actual_cost: float | None = None
+    currency: str = "USD"
+    usage_origin: str = "production"
+    cost_status: str
+    request_status: str
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+
+    # Enriched context & content
+    project: dict[str, Any] | None = None
+    shot: dict[str, Any] | None = None
+    job: dict[str, Any] | None = None
+    media_url: str | None = None
+    media_type: str | None = None  # "video", "audio", "image", None
+    content_title: str | None = None
+    content_prompt: str | None = None
+    content_output: str | None = None
+
     model_config = {"from_attributes": True}
 
 

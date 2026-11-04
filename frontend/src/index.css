@@ -3824,3 +3824,23 @@ button, input, textarea, select {
   align-items: center;
   justify-content: space-between;
 }
+
+/* Clickable Immutable AI Usage Ledger Rows */
+.clickable-ledger-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.clickable-ledger-row:hover td {
+  background-color: rgba(56, 189, 248, 0.07) !important;
+}
+
+.clickable-ledger-row:hover td:first-child {
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+
+.clickable-ledger-row:hover td:last-child {
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+}

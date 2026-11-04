@@ -459,6 +459,86 @@ export interface AIUsageRecord {
   error_code?: string | null;
   created_at: string;
   completed_at?: string | null;
+  project_name?: string | null;
+  shot_number?: number | null;
+  shot_description?: string | null;
+  visual_prompt?: string | null;
+  video_path?: string | null;
+  has_media?: boolean;
+}
+
+export interface AIUsageRecordDetail {
+  id: string;
+  project_id?: string | null;
+  shot_id?: string | null;
+  job_id?: string | null;
+  provider: string;
+  model: string;
+  operation: string;
+  provider_request_id?: string | null;
+  provider_task_id?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cached_input_tokens?: number | null;
+  video_duration_seconds?: number | null;
+  billing_unit: string;
+  unit_quantity: number;
+  unit_price: number;
+  estimated_cost: number;
+  actual_cost?: number | null;
+  currency: string;
+  usage_origin: string;
+  cost_status: string;
+  request_status: string;
+  error_code?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+
+  project?: {
+    id: string;
+    product_name?: string;
+    brief?: string;
+    audience?: string;
+    tone?: string;
+    cta?: string;
+    target_duration?: number;
+    shot_count?: number;
+    aspect_ratio?: string;
+    stage?: string;
+    final_video_path?: string | null;
+    narration_path?: string | null;
+  } | null;
+  shot?: {
+    id: string;
+    project_id: string;
+    shot_number: number;
+    description: string;
+    visual_prompt: string;
+    camera_motion?: string | null;
+    transition?: string | null;
+    narration_text?: string | null;
+    video_path?: string | null;
+    image_url?: string | null;
+    status: string;
+    actual_duration?: number | null;
+    target_duration?: number | null;
+    provider_job_id?: string | null;
+  } | null;
+  job?: {
+    id: string;
+    job_type: string;
+    status: string;
+    payload?: Record<string, any> | null;
+    result?: Record<string, any> | null;
+    error_message?: string | null;
+    attempt?: number;
+  } | null;
+  media_url?: string | null;
+  media_type?: "video" | "audio" | "image" | null;
+  content_title?: string | null;
+  content_prompt?: string | null;
+  content_output?: string | null;
 }
 
 export interface PaginatedUsage {

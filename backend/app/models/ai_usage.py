@@ -4,12 +4,18 @@ import enum
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
+
+if TYPE_CHECKING:
+    from app.models.project import Project
+    from app.models.shot import Shot
+    from app.models.job import Job
 
 
 class BillingUnit(str, enum.Enum):
@@ -121,6 +127,11 @@ class AIUsageRecord(UUIDPrimaryKeyMixin, Base):
         nullable=True,
     )
 
+    # Contextual relationships
+    project: Mapped["Project | None"] = relationship("Project", foreign_keys=[project_id], lazy="selectin")
+    shot: Mapped["Shot | None"] = relationship("Shot", foreign_keys=[shot_id], lazy="selectin")
+    job: Mapped["Job | None"] = relationship("Job", foreign_keys=[job_id], lazy="selectin")
+
     # Provider and operation descriptors
     provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     model: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
@@ -173,6 +184,34 @@ class AIUsageRecord(UUIDPrimaryKeyMixin, Base):
         Index("ix_ai_usage_prov_model", "provider", "model", "created_at"),
         Index("ix_ai_usage_origin_created", "usage_origin", "created_at"),
     )
+
+    @property
+    def project_name(self) -> str | None:
+        return self.project.product_name if self.project else None
+
+    @property
+    def shot_number(self) -> int | None:
+        return self.shot.shot_number if self.shot else None
+
+    @property
+    def shot_description(self) -> str | None:
+        return self.shot.description if self.shot else None
+
+    @property
+    def visual_prompt(self) -> str | None:
+        return self.shot.visual_prompt if self.shot else None
+
+    @property
+    def video_path(self) -> str | None:
+        if self.shot and self.shot.video_path:
+            return self.shot.video_path
+        if self.project and self.project.final_video_path:
+            return self.project.final_video_path
+        return None
+
+    @property
+    def has_media(self) -> bool:
+        return bool(self.video_path or (self.project and self.project.narration_path))
 
     def __repr__(self) -> str:
         return (

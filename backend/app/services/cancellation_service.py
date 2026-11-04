@@ -280,3 +280,4 @@ class CancellationService:
                 else f"Shot {shot.shot_number} generation cancelled. Status: {shot.status.value}."
             ),
         }
+

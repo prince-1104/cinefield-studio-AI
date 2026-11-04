@@ -229,6 +229,11 @@ export default function App() {
               window.history.pushState({}, "", "/");
               setViewMode("studio");
             }}
+            onSelectProject={(projectId) => {
+              window.history.pushState({}, "", "/");
+              setViewMode("studio");
+              handleSelectProject(projectId);
+            }}
           />
         ) : (
           <div className="studio-main">
