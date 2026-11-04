@@ -80,6 +80,8 @@ export const GenerationStep: FC<GenerationStepProps> = ({
     provider_name: selectedModelId.includes("seedance") ? "ByteDance Seedance" : "Google DeepMind",
     description: "Cinematic AI video generation model with temporal consistency and camera motion physics.",
     capabilities: ["1080p Resolution", "First-Frame Image Conditioning", "Camera Motion Control"],
+    is_available: true,
+    unavailability_reason: null,
   };
 
   const handleModelChange = async (newModelId: string) => {
@@ -367,8 +369,8 @@ export const GenerationStep: FC<GenerationStepProps> = ({
               }}
             >
               {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name} ({m.provider_name})
+                <option key={m.id} value={m.id} disabled={m.is_available === false}>
+                  {m.name} ({m.provider_name}) {m.is_available === false ? "— Unavailable (Missing Key)" : ""}
                 </option>
               ))}
             </select>
@@ -382,18 +384,27 @@ export const GenerationStep: FC<GenerationStepProps> = ({
               <button
                 key={m.id}
                 type="button"
-                className={`model-pill-btn ${selectedModelId === m.id ? "active" : ""}`}
-                onClick={() => handleModelChange(m.id)}
-                disabled={switchingModel}
-                title={m.description}
+                className={`model-pill-btn ${selectedModelId === m.id ? "active" : ""} ${m.is_available === false ? "disabled" : ""}`}
+                onClick={() => {
+                  if (m.is_available !== false) {
+                    handleModelChange(m.id);
+                  }
+                }}
+                disabled={switchingModel || m.is_available === false}
+                title={m.is_available === false ? (m.unavailability_reason || "Model unavailable: API credentials not configured in environment") : m.description}
+                style={{ opacity: m.is_available === false ? 0.5 : 1, cursor: m.is_available === false ? "not-allowed" : "pointer" }}
               >
                 <Cpu size={14} style={{ color: selectedModelId === m.id ? "#c4b5fd" : "#94a3b8" }} />
                 <span>{m.name}</span>
-                {m.is_default && (
+                {m.is_available === false ? (
+                  <span style={{ fontSize: "0.65rem", padding: "0.1rem 0.35rem", borderRadius: "9999px", background: "rgba(239, 68, 68, 0.25)", color: "#fca5a5" }}>
+                    Unavailable
+                  </span>
+                ) : m.is_default ? (
                   <span style={{ fontSize: "0.65rem", padding: "0.1rem 0.35rem", borderRadius: "9999px", background: "rgba(139, 92, 246, 0.3)", color: "#ffffff" }}>
                     Default
                   </span>
-                )}
+                ) : null}
               </button>
             ))}
           </div>
@@ -433,6 +444,13 @@ export const GenerationStep: FC<GenerationStepProps> = ({
               </span>
             ))}
           </div>
+
+          {selectedModel.is_available === false && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", padding: "0.5rem 0.75rem", background: "rgba(239, 68, 68, 0.12)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "6px", width: "100%", marginTop: "0.5rem", color: "#fca5a5", fontSize: "0.78rem" }}>
+              <AlertCircle size={14} style={{ flexShrink: 0 }} />
+              <span>{selectedModel.unavailability_reason || "This model is currently unavailable because required environment credentials (API key) are missing."}</span>
+            </div>
+          )}
         </div>
       </div>
 

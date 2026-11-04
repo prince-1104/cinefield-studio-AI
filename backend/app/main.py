@@ -8,8 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine, async_session_factory
-from app.routers import admin, ai_creative, artifacts, events, projects, timeline
+from app.routers import admin, ai_creative, artifacts, events, models, projects, timeline
 from app.services.ai_usage_service import seed_default_pricing
+from app.services.model_registry import model_registry
 
 
 @asynccontextmanager
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     application.include_router(artifacts.router)
     application.include_router(ai_creative.router)
     application.include_router(admin.router)
+    application.include_router(models.router)
 
     @application.get("/api/health")
     async def health() -> dict:
@@ -58,8 +60,7 @@ def create_app() -> FastAPI:
 
     @application.get("/api/video-models")
     async def get_video_models() -> list[dict]:
-        from app.services.video_providers import provider_registry
-        return [m.model_dump() for m in provider_registry.list_available_models()]
+        return [m.model_dump() for m in model_registry.list_models(capability="video_generation", include_unavailable=True)]
 
     return application
 

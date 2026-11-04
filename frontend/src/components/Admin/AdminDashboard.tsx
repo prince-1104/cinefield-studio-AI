@@ -63,8 +63,9 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Date Filter State
+  // Date & Origin Filter State
   const [rangePreset, setRangePreset] = useState<string>("30d");
+  const [originFilter, setOriginFilter] = useState<string>("production");
 
   // Analytics Data States
   const [loading, setLoading] = useState<boolean>(true);
@@ -99,10 +100,10 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
     setAuthError(null);
     try {
       const [ov, provs, mdls, projs] = await Promise.all([
-        getAdminOverview(rangePreset, undefined, undefined, adminKey),
-        getAdminProviders(rangePreset, undefined, undefined, adminKey),
-        getAdminModels(rangePreset, undefined, undefined, adminKey),
-        getAdminProjects(rangePreset, undefined, undefined, adminKey),
+        getAdminOverview(rangePreset, undefined, undefined, adminKey, originFilter),
+        getAdminProviders(rangePreset, undefined, undefined, adminKey, originFilter),
+        getAdminModels(rangePreset, undefined, undefined, adminKey, originFilter),
+        getAdminProjects(rangePreset, undefined, undefined, adminKey, originFilter),
       ]);
       setOverview(ov);
       setProviders(provs);
@@ -128,6 +129,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
         {
           provider: ledgerProviderFilter || undefined,
           requestStatus: ledgerStatusFilter || undefined,
+          origin: originFilter,
           range: rangePreset,
           limit: ledgerLimit,
           offset: ledgerPage * ledgerLimit,
@@ -144,7 +146,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
   useEffect(() => {
     fetchDashboardData();
     fetchLedger();
-  }, [rangePreset, adminKey]);
+  }, [rangePreset, adminKey, originFilter]);
 
   useEffect(() => {
     fetchLedger();
@@ -161,6 +163,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
       const blob = await downloadAdminUsageCsv(
         {
           provider: ledgerProviderFilter || undefined,
+          origin: originFilter,
           range: rangePreset,
         },
         adminKey
@@ -241,8 +244,30 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
           </div>
         </div>
 
-        {/* Date Filter & CSV Actions */}
+        {/* Date & Origin Filters & CSV Actions */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+          {/* Usage Origin Filter Pills */}
+          <div className="date-filter-group" title="Filter AI Usage Origin">
+            {[
+              { id: "production", label: "Production (Live)" },
+              { id: "test", label: "Test & QA" },
+              { id: "all", label: "All Origins" },
+            ].map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                className={`date-pill ${originFilter === o.id ? "active" : ""}`}
+                onClick={() => {
+                  setOriginFilter(o.id);
+                  setLedgerPage(0);
+                }}
+                style={{ fontSize: "0.74rem" }}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+
           <div className="date-filter-group">
             {[
               { id: "today", label: "Today" },
@@ -401,6 +426,30 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
             </div>
           )}
 
+          {/* Clean Production / Filter Empty State Notice */}
+          {overview && overview.total_requests === 0 && (
+            <div
+              style={{
+                padding: "2rem 1.5rem",
+                background: "rgba(30, 41, 59, 0.4)",
+                borderRadius: "12px",
+                border: "1px dashed rgba(148, 163, 184, 0.25)",
+                textAlign: "center",
+                margin: "1.5rem 0",
+              }}
+            >
+              <Layers size={32} style={{ color: "#64748b", margin: "0 auto 0.75rem" }} />
+              <div style={{ fontSize: "1.05rem", fontWeight: 600, color: "#f8fafc", marginBottom: "0.35rem" }}>
+                No AI usage recorded yet.
+              </div>
+              <div style={{ fontSize: "0.82rem", color: "#94a3b8", maxWidth: "520px", margin: "0 auto", lineHeight: 1.5 }}>
+                {originFilter === "production"
+                  ? "No production AI API calls have been logged yet. When you generate creative briefs with Claude or video clips with Seedance in active projects, verified token counts and video durations will appear here in real time."
+                  : `No AI usage records found matching origin "${originFilter}". Synthetic test runs and unit tests do not pollute production cost metrics.`}
+              </div>
+            </div>
+          )}
+
           {/* =====================================================================
               2. Provider Analytics Grid
               ===================================================================== */}
@@ -437,6 +486,11 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   </div>
                 </div>
               ))}
+              {(!providers || providers.length === 0) && (
+                <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#64748b", padding: "1.75rem", background: "rgba(15, 23, 42, 0.4)", borderRadius: "8px", border: "1px dashed rgba(148, 163, 184, 0.15)", fontSize: "0.85rem" }}>
+                  No AI usage recorded yet.
+                </div>
+              )}
             </div>
           </div>
 
@@ -489,7 +543,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   {(!models || models.length === 0) && (
                     <tr>
                       <td colSpan={9} style={{ textAlign: "center", color: "#64748b", padding: "2rem" }}>
-                        No model usage recorded for this timeframe.
+                        No AI usage recorded yet.
                       </td>
                     </tr>
                   )}
@@ -553,7 +607,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   {(!projects || projects.length === 0) && (
                     <tr>
                       <td colSpan={9} style={{ textAlign: "center", color: "#64748b", padding: "2rem" }}>
-                        No projects have recorded AI spend in this timeframe.
+                        No AI usage recorded yet.
                       </td>
                     </tr>
                   )}
@@ -632,6 +686,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                 <thead>
                   <tr>
                     <th>Timestamp</th>
+                    <th>Origin</th>
                     <th>Provider</th>
                     <th>Model</th>
                     <th>Operation</th>
@@ -658,6 +713,29 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                     <tr key={item.id}>
                       <td style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
                         {new Date(item.created_at).toLocaleString()}
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            fontWeight: 600,
+                            padding: "0.15rem 0.45rem",
+                            borderRadius: "4px",
+                            textTransform: "uppercase",
+                            backgroundColor:
+                              item.usage_origin === "production"
+                                ? "rgba(16, 185, 129, 0.15)"
+                                : "rgba(245, 158, 11, 0.15)",
+                            color: item.usage_origin === "production" ? "#34d399" : "#fbbf24",
+                            border: `1px solid ${
+                              item.usage_origin === "production"
+                                ? "rgba(16, 185, 129, 0.3)"
+                                : "rgba(245, 158, 11, 0.3)"
+                            }`,
+                          }}
+                        >
+                          {item.usage_origin || "production"}
+                        </span>
                       </td>
                       <td>
                         <span className="table-provider-pill">{item.provider}</span>
@@ -713,8 +791,8 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio }) => {
                   ))}
                   {(!ledgerItems || ledgerItems.length === 0) && (
                     <tr>
-                      <td colSpan={9} style={{ textAlign: "center", color: "#64748b", padding: "2rem" }}>
-                        No records match the current filters.
+                      <td colSpan={10} style={{ textAlign: "center", color: "#64748b", padding: "2rem" }}>
+                        No AI usage recorded yet.
                       </td>
                     </tr>
                   )}

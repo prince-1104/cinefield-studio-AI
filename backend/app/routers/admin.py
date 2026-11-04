@@ -85,13 +85,14 @@ async def get_overview_metrics(
     range_preset: str | None = Query(default=None, alias="range"),
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
+    origin: str = Query(default="production", description="Filter by usage origin: production, test, simulation, or all"),
     _: bool = Depends(verify_admin_auth),
     session: AsyncSession = Depends(get_session),
 ) -> OverviewMetricsResponse:
     """Retrieve high-level spend, token consumption, and video generation metrics."""
     s_dt, e_dt = parse_date_range(range_preset, start_date, end_date)
     await seed_default_pricing(session)
-    data = await AIUsageService.get_overview_metrics(session, s_dt, e_dt)
+    data = await AIUsageService.get_overview_metrics(session, s_dt, e_dt, origin=origin)
     return OverviewMetricsResponse(**data)
 
 
@@ -100,12 +101,13 @@ async def get_provider_metrics(
     range_preset: str | None = Query(default=None, alias="range"),
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
+    origin: str = Query(default="production", description="Filter by usage origin: production, test, simulation, or all"),
     _: bool = Depends(verify_admin_auth),
     session: AsyncSession = Depends(get_session),
 ) -> list[ProviderMetricsResponse]:
     """Breakdown of usage and failure rate by AI provider."""
     s_dt, e_dt = parse_date_range(range_preset, start_date, end_date)
-    data = await AIUsageService.get_provider_metrics(session, s_dt, e_dt)
+    data = await AIUsageService.get_provider_metrics(session, s_dt, e_dt, origin=origin)
     return [ProviderMetricsResponse(**d) for d in data]
 
 
@@ -114,12 +116,13 @@ async def get_model_metrics(
     range_preset: str | None = Query(default=None, alias="range"),
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
+    origin: str = Query(default="production", description="Filter by usage origin: production, test, simulation, or all"),
     _: bool = Depends(verify_admin_auth),
     session: AsyncSession = Depends(get_session),
 ) -> list[ModelMetricsResponse]:
     """Breakdown of requests, spend, and failure rate by exact model identifier."""
     s_dt, e_dt = parse_date_range(range_preset, start_date, end_date)
-    data = await AIUsageService.get_model_metrics(session, s_dt, e_dt)
+    data = await AIUsageService.get_model_metrics(session, s_dt, e_dt, origin=origin)
     return [ModelMetricsResponse(**d) for d in data]
 
 
@@ -128,23 +131,25 @@ async def get_projects_cost_metrics(
     range_preset: str | None = Query(default=None, alias="range"),
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
+    origin: str = Query(default="production", description="Filter by usage origin: production, test, simulation, or all"),
     _: bool = Depends(verify_admin_auth),
     session: AsyncSession = Depends(get_session),
 ) -> list[ProjectCostMetricsResponse]:
     """Project-level cost ledger comparing spend across projects."""
     s_dt, e_dt = parse_date_range(range_preset, start_date, end_date)
-    data = await AIUsageService.get_projects_cost_metrics(session, s_dt, e_dt)
+    data = await AIUsageService.get_projects_cost_metrics(session, s_dt, e_dt, origin=origin)
     return [ProjectCostMetricsResponse(**d) for d in data]
 
 
 @router.get("/metrics/projects/{project_id}", response_model=ProjectDetailMetricsResponse)
 async def get_project_detail_metrics(
     project_id: uuid.UUID,
+    origin: str = Query(default="production", description="Filter by usage origin: production, test, simulation, or all"),
     _: bool = Depends(verify_admin_auth),
     session: AsyncSession = Depends(get_session),
 ) -> ProjectDetailMetricsResponse:
     """Detailed AI cost analytics for a single project (cost per shot, per video, retries)."""
-    data = await AIUsageService.get_project_detail_metrics(session, project_id)
+    data = await AIUsageService.get_project_detail_metrics(session, project_id, origin=origin)
     if not data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -161,6 +166,7 @@ async def get_usage_ledger(
     operation: str | None = Query(default=None),
     request_status: str | None = Query(default=None),
     cost_status: str | None = Query(default=None),
+    origin: str = Query(default="production", description="Filter by usage origin: production, test, simulation, or all"),
     range_preset: str | None = Query(default=None, alias="range"),
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
@@ -179,6 +185,7 @@ async def get_usage_ledger(
         operation=operation,
         request_status=request_status,
         cost_status=cost_status,
+        origin=origin,
         start_date=s_dt,
         end_date=e_dt,
         limit=limit,
@@ -197,6 +204,7 @@ async def export_usage_csv(
     project_id: uuid.UUID | None = Query(default=None),
     provider: str | None = Query(default=None),
     model: str | None = Query(default=None),
+    origin: str = Query(default="production", description="Filter by usage origin: production, test, simulation, or all"),
     range_preset: str | None = Query(default=None, alias="range"),
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
@@ -210,6 +218,7 @@ async def export_usage_csv(
         project_id=project_id,
         provider=provider,
         model=model,
+        origin=origin,
         start_date=s_dt,
         end_date=e_dt,
     )

@@ -45,6 +45,36 @@ export interface VideoModelInfo {
   is_default: boolean;
   requires_resource_id?: boolean;
   capabilities?: string[];
+  is_available?: boolean;
+  unavailability_reason?: string | null;
+}
+
+export interface ModelParameter {
+  name: string;
+  type: "string" | "integer" | "float" | "boolean" | "list";
+  description: string;
+  default?: any;
+  options?: any[] | null;
+  min_value?: number | null;
+  max_value?: number | null;
+  required: boolean;
+}
+
+export interface ModelSpec {
+  id: string;
+  provider: string;
+  name: string;
+  capabilities: string[];
+  description: string;
+  is_available: boolean;
+  unavailability_reason?: string | null;
+  supported_durations?: number[];
+  supported_aspect_ratios?: string[];
+  supported_parameters: ModelParameter[];
+  default_duration?: number;
+  input_price_per_million?: number;
+  output_price_per_million?: number;
+  video_price_per_second?: number;
 }
 
 export interface ShotResponse {
@@ -416,6 +446,7 @@ export interface AIUsageRecord {
   actual_cost?: number | null;
   currency: string;
   cost_status: string;
+  usage_origin?: string;
   request_status: string;
   error_code?: string | null;
   created_at: string;

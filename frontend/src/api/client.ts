@@ -16,6 +16,7 @@ import {
   OverviewMetrics,
   ProviderMetric,
   ModelMetric,
+  ModelSpec,
   ProjectCostMetric,
   ProjectDetailMetrics,
   PaginatedUsage,
@@ -27,6 +28,23 @@ const api = axios.create({
 
 export async function getVideoModels(): Promise<VideoModelInfo[]> {
   const res = await api.get<VideoModelInfo[]>("/video-models");
+  return res.data;
+}
+
+export async function getModels(
+  capability?: string,
+  includeUnavailable: boolean = true
+): Promise<ModelSpec[]> {
+  const params: Record<string, any> = { include_unavailable: includeUnavailable };
+  if (capability) {
+    params.capability = capability;
+  }
+  const res = await api.get<ModelSpec[]>("/models", { params });
+  return res.data;
+}
+
+export async function getModelDetail(modelId: string): Promise<ModelSpec> {
+  const res = await api.get<ModelSpec>(`/models/detail/${encodeURIComponent(modelId)}`);
   return res.data;
 }
 
@@ -219,10 +237,11 @@ export async function getAdminOverview(
   range?: string,
   startDate?: string,
   endDate?: string,
-  adminKey?: string
+  adminKey?: string,
+  origin: string = "production"
 ): Promise<OverviewMetrics> {
   const res = await api.get<OverviewMetrics>("/admin/metrics/overview", {
-    params: { range, start_date: startDate, end_date: endDate },
+    params: { range, start_date: startDate, end_date: endDate, origin },
     headers: getAdminHeaders(adminKey),
   });
   return res.data;
@@ -232,10 +251,11 @@ export async function getAdminProviders(
   range?: string,
   startDate?: string,
   endDate?: string,
-  adminKey?: string
+  adminKey?: string,
+  origin: string = "production"
 ): Promise<ProviderMetric[]> {
   const res = await api.get<ProviderMetric[]>("/admin/metrics/providers", {
-    params: { range, start_date: startDate, end_date: endDate },
+    params: { range, start_date: startDate, end_date: endDate, origin },
     headers: getAdminHeaders(adminKey),
   });
   return res.data;
@@ -245,10 +265,11 @@ export async function getAdminModels(
   range?: string,
   startDate?: string,
   endDate?: string,
-  adminKey?: string
+  adminKey?: string,
+  origin: string = "production"
 ): Promise<ModelMetric[]> {
   const res = await api.get<ModelMetric[]>("/admin/metrics/models", {
-    params: { range, start_date: startDate, end_date: endDate },
+    params: { range, start_date: startDate, end_date: endDate, origin },
     headers: getAdminHeaders(adminKey),
   });
   return res.data;
@@ -258,10 +279,11 @@ export async function getAdminProjects(
   range?: string,
   startDate?: string,
   endDate?: string,
-  adminKey?: string
+  adminKey?: string,
+  origin: string = "production"
 ): Promise<ProjectCostMetric[]> {
   const res = await api.get<ProjectCostMetric[]>("/admin/metrics/projects", {
-    params: { range, start_date: startDate, end_date: endDate },
+    params: { range, start_date: startDate, end_date: endDate, origin },
     headers: getAdminHeaders(adminKey),
   });
   return res.data;
@@ -269,9 +291,11 @@ export async function getAdminProjects(
 
 export async function getAdminProjectDetail(
   projectId: string,
-  adminKey?: string
+  adminKey?: string,
+  origin: string = "production"
 ): Promise<ProjectDetailMetrics> {
   const res = await api.get<ProjectDetailMetrics>(`/admin/metrics/projects/${projectId}`, {
+    params: { origin },
     headers: getAdminHeaders(adminKey),
   });
   return res.data;
@@ -285,6 +309,7 @@ export async function getAdminUsageLedger(
     operation?: string;
     requestStatus?: string;
     costStatus?: string;
+    origin?: string;
     range?: string;
     startDate?: string;
     endDate?: string;
@@ -301,6 +326,7 @@ export async function getAdminUsageLedger(
       operation: params.operation || undefined,
       request_status: params.requestStatus || undefined,
       cost_status: params.costStatus || undefined,
+      origin: params.origin || "production",
       range: params.range || undefined,
       start_date: params.startDate || undefined,
       end_date: params.endDate || undefined,
@@ -317,6 +343,7 @@ export async function downloadAdminUsageCsv(
     projectId?: string;
     provider?: string;
     model?: string;
+    origin?: string;
     range?: string;
     startDate?: string;
     endDate?: string;
@@ -328,6 +355,7 @@ export async function downloadAdminUsageCsv(
       project_id: params.projectId || undefined,
       provider: params.provider || undefined,
       model: params.model || undefined,
+      origin: params.origin || "production",
       range: params.range || undefined,
       start_date: params.startDate || undefined,
       end_date: params.endDate || undefined,

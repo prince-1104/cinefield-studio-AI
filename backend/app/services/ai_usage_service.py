@@ -3,6 +3,7 @@
 import csv
 import io
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -11,7 +12,7 @@ from typing import Any
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.ai_usage import AIModelPricing, AIUsageRecord, BillingUnit, CostStatus, RequestStatus
+from app.models.ai_usage import AIModelPricing, AIUsageRecord, BillingUnit, CostStatus, RequestStatus, UsageOrigin
 from app.models.project import Project
 
 logger = logging.getLogger(__name__)
@@ -227,8 +228,31 @@ class AIUsageService:
         request_status: str = RequestStatus.SUCCESS.value,
         error_code: str | None = None,
         error_message: str | None = None,
+        usage_origin: str = UsageOrigin.PRODUCTION.value,
     ) -> AIUsageRecord:
-        """Record Claude API usage and compute token-based cost."""
+        """Record Claude API usage and compute token-based cost with idempotency protection."""
+        # Automatically isolate test runs to prevent test pollution of production analytics
+        if usage_origin == UsageOrigin.PRODUCTION.value and "PYTEST_CURRENT_TEST" in os.environ:
+            usage_origin = UsageOrigin.TEST.value
+
+        # Idempotency check: prevent duplicate insertion for the exact same provider_request_id
+        if provider_request_id:
+            existing = (
+                await session.execute(
+                    select(AIUsageRecord).where(AIUsageRecord.provider_request_id == provider_request_id).limit(1)
+                )
+            ).scalar_one_or_none()
+            if existing:
+                existing.input_tokens = input_tokens
+                existing.output_tokens = output_tokens
+                existing.request_status = request_status
+                if error_code:
+                    existing.error_code = error_code
+                if error_message:
+                    existing.error_message = error_message
+                await session.flush()
+                return existing
+
         pricing = await get_effective_pricing(session, "claude", model)
         total_cost, _, _ = calculate_token_cost(input_tokens, output_tokens, cached_tokens, pricing)
 
@@ -253,6 +277,7 @@ class AIUsageService:
             estimated_cost=total_cost,
             actual_cost=total_cost,  # Claude tokens are exact provider measurements
             currency="USD",
+            usage_origin=usage_origin,
             cost_status=CostStatus.ACTUAL.value if total_tokens > 0 else CostStatus.ESTIMATED.value,
             request_status=request_status,
             error_code=error_code,
@@ -279,8 +304,35 @@ class AIUsageService:
         request_status: str = RequestStatus.SUCCESS.value,
         error_code: str | None = None,
         error_message: str | None = None,
+        usage_origin: str = UsageOrigin.PRODUCTION.value,
     ) -> AIUsageRecord:
-        """Record Seedance video generation usage and compute duration-based cost."""
+        """Record Seedance video generation usage and compute duration-based cost with idempotency protection."""
+        # Automatically isolate test runs to prevent test pollution of production analytics
+        if usage_origin == UsageOrigin.PRODUCTION.value and "PYTEST_CURRENT_TEST" in os.environ:
+            usage_origin = UsageOrigin.TEST.value
+
+        # Idempotency check: prevent duplicate insertion for the exact same provider_task_id
+        if provider_task_id:
+            existing = (
+                await session.execute(
+                    select(AIUsageRecord).where(
+                        AIUsageRecord.provider_task_id == provider_task_id,
+                        AIUsageRecord.operation == operation,
+                    ).limit(1)
+                )
+            ).scalar_one_or_none()
+            if existing:
+                existing.request_status = request_status
+                if actual_provider_cost is not None:
+                    existing.actual_cost = actual_provider_cost
+                    existing.cost_status = CostStatus.ACTUAL.value
+                if error_code:
+                    existing.error_code = error_code
+                if error_message:
+                    existing.error_message = error_message
+                await session.flush()
+                return existing
+
         pricing = await get_effective_pricing(session, "seedance", model)
         dur_dec = Decimal(str(duration_seconds))
         estimated_cost = calculate_video_cost(dur_dec, pricing)
@@ -305,6 +357,7 @@ class AIUsageService:
             estimated_cost=estimated_cost,
             actual_cost=actual_provider_cost,
             currency="USD",
+            usage_origin=usage_origin,
             cost_status=cost_status,
             request_status=request_status,
             error_code=error_code,
@@ -353,11 +406,27 @@ class AIUsageService:
         return query
 
     @classmethod
+    def _apply_filters(
+        cls,
+        query: Any,
+        column: Any,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        origin: str | None = UsageOrigin.PRODUCTION.value,
+        usage_model: Any = AIUsageRecord,
+    ) -> Any:
+        query = cls._apply_date_filter(query, column, start_date, end_date)
+        if origin and origin.lower() != "all":
+            query = query.where(usage_model.usage_origin == origin.lower())
+        return query
+
+    @classmethod
     async def get_overview_metrics(
         cls,
         session: AsyncSession,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        origin: str | None = UsageOrigin.PRODUCTION.value,
     ) -> dict[str, Any]:
         """Compute top-level summary metrics across all AI operations."""
         query = select(
@@ -367,7 +436,7 @@ class AIUsageService:
             func.coalesce(func.sum(AIUsageRecord.output_tokens), 0).label("total_out_tokens"),
             func.count(AIUsageRecord.id).label("total_requests"),
         )
-        query = cls._apply_date_filter(query, AIUsageRecord.created_at, start_date, end_date)
+        query = cls._apply_filters(query, AIUsageRecord.created_at, start_date, end_date, origin=origin)
         res = (await session.execute(query)).one()
 
         # Video generation stats
@@ -377,19 +446,19 @@ class AIUsageService:
             func.count().filter(AIUsageRecord.request_status == RequestStatus.FAILED.value).label("failed_videos"),
             func.coalesce(func.sum(AIUsageRecord.video_duration_seconds), 0).label("total_video_seconds"),
         ).where(AIUsageRecord.billing_unit == BillingUnit.VIDEO_SECONDS.value)
-        video_q = cls._apply_date_filter(video_q, AIUsageRecord.created_at, start_date, end_date)
+        video_q = cls._apply_filters(video_q, AIUsageRecord.created_at, start_date, end_date, origin=origin)
         v_res = (await session.execute(video_q)).one()
 
         # Distinct AI-using projects
         proj_q = select(func.count(func.distinct(AIUsageRecord.project_id)))
-        proj_q = cls._apply_date_filter(proj_q, AIUsageRecord.created_at, start_date, end_date)
+        proj_q = cls._apply_filters(proj_q, AIUsageRecord.created_at, start_date, end_date, origin=origin)
         total_projects = (await session.execute(proj_q)).scalar() or 0
 
         # Cost status breakdowns
         unknown_q = select(func.coalesce(func.sum(AIUsageRecord.estimated_cost), 0)).where(
             AIUsageRecord.cost_status == CostStatus.UNKNOWN.value
         )
-        unknown_q = cls._apply_date_filter(unknown_q, AIUsageRecord.created_at, start_date, end_date)
+        unknown_q = cls._apply_filters(unknown_q, AIUsageRecord.created_at, start_date, end_date, origin=origin)
         unknown_spend = (await session.execute(unknown_q)).scalar() or Decimal("0")
 
         total_est = Decimal(str(res.total_estimated))
@@ -404,7 +473,7 @@ class AIUsageService:
                 0,
             )
         )
-        reconciled_q = cls._apply_date_filter(reconciled_q, AIUsageRecord.created_at, start_date, end_date)
+        reconciled_q = cls._apply_filters(reconciled_q, AIUsageRecord.created_at, start_date, end_date, origin=origin)
         total_spend = Decimal(str((await session.execute(reconciled_q)).scalar() or "0"))
 
         return {
@@ -429,6 +498,7 @@ class AIUsageService:
         session: AsyncSession,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        origin: str | None = UsageOrigin.PRODUCTION.value,
     ) -> list[dict[str, Any]]:
         """Usage aggregated by AI provider (Claude, Seedance, Gemini, OpenAI)."""
         query = (
@@ -449,7 +519,7 @@ class AIUsageService:
             .group_by(AIUsageRecord.provider)
             .order_by(desc("total_cost"))
         )
-        query = cls._apply_date_filter(query, AIUsageRecord.created_at, start_date, end_date)
+        query = cls._apply_filters(query, AIUsageRecord.created_at, start_date, end_date, origin=origin)
         rows = (await session.execute(query)).all()
 
         results = []
@@ -474,6 +544,7 @@ class AIUsageService:
         session: AsyncSession,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        origin: str | None = UsageOrigin.PRODUCTION.value,
     ) -> list[dict[str, Any]]:
         """Usage aggregated by exact model identifier."""
         query = (
@@ -497,7 +568,7 @@ class AIUsageService:
             .group_by(AIUsageRecord.provider, AIUsageRecord.model)
             .order_by(desc("total_cost"))
         )
-        query = cls._apply_date_filter(query, AIUsageRecord.created_at, start_date, end_date)
+        query = cls._apply_filters(query, AIUsageRecord.created_at, start_date, end_date, origin=origin)
         rows = (await session.execute(query)).all()
 
         results = []
@@ -528,6 +599,7 @@ class AIUsageService:
         session: AsyncSession,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        origin: str | None = UsageOrigin.PRODUCTION.value,
     ) -> list[dict[str, Any]]:
         """Project-level AI cost table with model breakdown and token metrics."""
         query = (
@@ -567,7 +639,7 @@ class AIUsageService:
             .group_by(Project.id, Project.product_name)
             .order_by(desc("total_spend"))
         )
-        query = cls._apply_date_filter(query, AIUsageRecord.created_at, start_date, end_date)
+        query = cls._apply_filters(query, AIUsageRecord.created_at, start_date, end_date, origin=origin)
         rows = (await session.execute(query)).all()
 
         results = []
@@ -595,6 +667,7 @@ class AIUsageService:
         cls,
         session: AsyncSession,
         project_id: uuid.UUID,
+        origin: str | None = UsageOrigin.PRODUCTION.value,
     ) -> dict[str, Any]:
         """Comprehensive AI usage breakdown for a single project."""
         # Project metadata
@@ -606,8 +679,10 @@ class AIUsageService:
         records_stmt = (
             select(AIUsageRecord)
             .where(AIUsageRecord.project_id == project_id)
-            .order_by(desc(AIUsageRecord.created_at))
         )
+        if origin and origin.lower() != "all":
+            records_stmt = records_stmt.where(AIUsageRecord.usage_origin == origin.lower())
+        records_stmt = records_stmt.order_by(desc(AIUsageRecord.created_at))
         records = (await session.execute(records_stmt)).scalars().all()
 
         total_spend = Decimal("0")
@@ -676,6 +751,7 @@ class AIUsageService:
         operation: str | None = None,
         request_status: str | None = None,
         cost_status: str | None = None,
+        origin: str | None = UsageOrigin.PRODUCTION.value,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         limit: int = 50,
@@ -696,6 +772,8 @@ class AIUsageService:
             query = query.where(AIUsageRecord.request_status == request_status)
         if cost_status:
             query = query.where(AIUsageRecord.cost_status == cost_status)
+        if origin and origin.lower() != "all":
+            query = query.where(AIUsageRecord.usage_origin == origin.lower())
 
         query = cls._apply_date_filter(query, AIUsageRecord.created_at, start_date, end_date)
 
@@ -715,6 +793,7 @@ class AIUsageService:
         project_id: uuid.UUID | None = None,
         provider: str | None = None,
         model: str | None = None,
+        origin: str | None = UsageOrigin.PRODUCTION.value,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
     ) -> str:
@@ -724,6 +803,7 @@ class AIUsageService:
             project_id=project_id,
             provider=provider,
             model=model,
+            origin=origin,
             start_date=start_date,
             end_date=end_date,
             limit=10000,
@@ -738,6 +818,7 @@ class AIUsageService:
             "Project ID",
             "Shot ID",
             "Job ID",
+            "Usage Origin",
             "Provider",
             "Model",
             "Operation",
@@ -763,6 +844,7 @@ class AIUsageService:
                 str(r.project_id) if r.project_id else "",
                 str(r.shot_id) if r.shot_id else "",
                 str(r.job_id) if r.job_id else "",
+                r.usage_origin,
                 r.provider,
                 r.model,
                 r.operation,

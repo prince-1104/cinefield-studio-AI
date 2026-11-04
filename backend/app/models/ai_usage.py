@@ -39,6 +39,15 @@ class RequestStatus(str, enum.Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class UsageOrigin(str, enum.Enum):
+    """Origin of the recorded usage to distinguish production from test or simulation."""
+
+    PRODUCTION = "production"
+    TEST = "test"
+    SIMULATION = "simulation"
+    UNVERIFIED = "unverified"
+
+
 class AIModelPricing(UUIDPrimaryKeyMixin, Base):
     """Centralized model pricing configuration versioned by effective dates."""
 
@@ -137,6 +146,12 @@ class AIUsageRecord(UUIDPrimaryKeyMixin, Base):
     currency: Mapped[str] = mapped_column(String(8), default="USD", nullable=False)
 
     # Audit & Status
+    usage_origin: Mapped[str] = mapped_column(
+        String(32),
+        default=UsageOrigin.PRODUCTION.value,
+        nullable=False,
+        index=True,
+    )
     cost_status: Mapped[str] = mapped_column(String(32), default=CostStatus.ESTIMATED.value, nullable=False, index=True)
     request_status: Mapped[str] = mapped_column(String(32), default=RequestStatus.SUCCESS.value, nullable=False, index=True)
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -156,6 +171,7 @@ class AIUsageRecord(UUIDPrimaryKeyMixin, Base):
     __table_args__ = (
         Index("ix_ai_usage_proj_created", "project_id", "created_at"),
         Index("ix_ai_usage_prov_model", "provider", "model", "created_at"),
+        Index("ix_ai_usage_origin_created", "usage_origin", "created_at"),
     )
 
     def __repr__(self) -> str:

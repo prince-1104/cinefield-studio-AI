@@ -458,3 +458,12 @@ async def test_concurrent_worker_execution(tmp_path):
             v_j2 = await verify_session.get(Job, j2.id)
             assert v_j1.status == JobStatus.DONE
             assert v_j2.status == JobStatus.DONE
+
+            # Clean up test records
+            from app.models.ai_usage import AIUsageRecord
+            from sqlalchemy import delete
+            await verify_session.execute(delete(AIUsageRecord).where(AIUsageRecord.project_id == project.id))
+            await verify_session.execute(delete(Job).where(Job.project_id == project.id))
+            await verify_session.execute(delete(Shot).where(Shot.project_id == project.id))
+            await verify_session.execute(delete(Project).where(Project.id == project.id))
+            await verify_session.commit()

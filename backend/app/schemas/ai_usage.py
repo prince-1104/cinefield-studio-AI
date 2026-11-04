@@ -58,6 +58,7 @@ class AIUsageRecordResponse(BaseModel):
     estimated_cost: float
     actual_cost: float | None = None
     currency: str = "USD"
+    usage_origin: str = "production"
     cost_status: str
     request_status: str
     error_code: str | None = None

@@ -66,7 +66,7 @@ async def test_decimal_cost_calculations():
 
 @pytest.mark.asyncio
 async def test_record_claude_usage_and_ledger():
-    """Verify recording of Claude API calls with token tracking into the ledger."""
+    """Verify recording of Claude API calls with token tracking into the ledger and test origin."""
     async with async_session_factory() as db_session:
         await seed_default_pricing(db_session)
 
@@ -80,19 +80,24 @@ async def test_record_claude_usage_and_ledger():
         )
         await db_session.commit()
 
-        assert record.id is not None
-        assert record.provider == "claude"
-        assert record.model == "claude-3-7-sonnet-20250219"
-        assert record.input_tokens == 2500
-        assert record.output_tokens == 600
-        assert record.provider_request_id == "msg_test_12345"
-        assert record.estimated_cost > Decimal("0")
-        assert record.cost_status == CostStatus.ACTUAL.value
+        try:
+            assert record.id is not None
+            assert record.provider == "claude"
+            assert record.model == "claude-3-7-sonnet-20250219"
+            assert record.input_tokens == 2500
+            assert record.output_tokens == 600
+            assert record.provider_request_id == "msg_test_12345"
+            assert record.estimated_cost > Decimal("0")
+            assert record.cost_status == CostStatus.ACTUAL.value
+            assert record.usage_origin == "test"
+        finally:
+            await db_session.delete(record)
+            await db_session.commit()
 
 
 @pytest.mark.asyncio
 async def test_record_seedance_usage_and_retry_accounting():
-    """Verify Seedance video generation and retry tracking create distinct records."""
+    """Verify Seedance video generation and retry tracking create distinct records with test origin."""
     async with async_session_factory() as db_session:
         await seed_default_pricing(db_session)
 
@@ -107,34 +112,42 @@ async def test_record_seedance_usage_and_retry_accounting():
         db_session.add(project)
         await db_session.flush()
 
-        # Initial video generation attempt
-        rec1 = await AIUsageService.record_seedance_usage(
-            session=db_session,
-            model="dreamina-seedance-2-5-260628",
-            operation="video_generation",
-            duration_seconds=5.0,
-            provider_task_id="task_seedance_001",
-            project_id=project.id,
-            request_status="SUCCESS",
-        )
+        try:
+            # Initial video generation attempt
+            rec1 = await AIUsageService.record_seedance_usage(
+                session=db_session,
+                model="dreamina-seedance-2-5-260628",
+                operation="video_generation",
+                duration_seconds=5.0,
+                provider_task_id="task_seedance_001",
+                project_id=project.id,
+                request_status="SUCCESS",
+            )
 
-        # Retry generation attempt
-        rec2 = await AIUsageService.record_seedance_usage(
-            session=db_session,
-            model="dreamina-seedance-2-5-260628",
-            operation="video_retry",
-            duration_seconds=5.0,
-            provider_task_id="task_seedance_002",
-            project_id=project.id,
-            request_status="SUCCESS",
-        )
-        await db_session.commit()
+            # Retry generation attempt
+            rec2 = await AIUsageService.record_seedance_usage(
+                session=db_session,
+                model="dreamina-seedance-2-5-260628",
+                operation="video_retry",
+                duration_seconds=5.0,
+                provider_task_id="task_seedance_002",
+                project_id=project.id,
+                request_status="SUCCESS",
+            )
+            await db_session.commit()
 
-        assert rec1.id != rec2.id
-        assert rec1.operation == "video_generation"
-        assert rec2.operation == "video_retry"
-        assert rec1.estimated_cost == Decimal("0.250000")
-        assert rec2.estimated_cost == Decimal("0.250000")
+            assert rec1.id != rec2.id
+            assert rec1.operation == "video_generation"
+            assert rec2.operation == "video_retry"
+            assert rec1.estimated_cost == Decimal("0.250000")
+            assert rec2.estimated_cost == Decimal("0.250000")
+            assert rec1.usage_origin == "test"
+            assert rec2.usage_origin == "test"
+        finally:
+            await db_session.delete(rec1)
+            await db_session.delete(rec2)
+            await db_session.delete(project)
+            await db_session.commit()
 
 
 @pytest.mark.asyncio
@@ -153,21 +166,65 @@ async def test_reconciliation_actual_billing():
             request_status="SUCCESS",
         )
         await db_session.commit()
-        assert rec.actual_cost is None
-        assert rec.cost_status == CostStatus.ESTIMATED.value
 
-        # Reconcile with actual provider billing
-        success = await AIUsageService.reconcile_task_billing(
+        try:
+            assert rec.actual_cost is None
+            assert rec.cost_status == CostStatus.ESTIMATED.value
+            assert rec.usage_origin == "test"
+
+            # Reconcile with actual provider billing
+            success = await AIUsageService.reconcile_task_billing(
+                session=db_session,
+                provider_task_id=unique_task_id,
+                actual_cost=Decimal("0.220000"),
+            )
+            await db_session.commit()
+            assert success is True
+
+            await db_session.refresh(rec)
+            assert rec.actual_cost == Decimal("0.220000")
+            assert rec.cost_status == CostStatus.RECONCILED.value
+        finally:
+            await db_session.delete(rec)
+            await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_production_vs_test_origin_separation():
+    """Verify production analytics strictly filter out test API usage records."""
+    async with async_session_factory() as db_session:
+        await seed_default_pricing(db_session)
+
+        # Overview for production should return 0 when there are no production records
+        prod_overview = await AIUsageService.get_overview_metrics(db_session, origin="production")
+        assert prod_overview["total_requests"] == 0
+        assert prod_overview["total_spend"] == 0.0
+
+        # Insert a test record explicitly
+        test_rec = await AIUsageService.record_claude_usage(
             session=db_session,
-            provider_task_id=unique_task_id,
-            actual_cost=Decimal("0.220000"),
+            model="claude-3-7-sonnet-20250219",
+            operation="test_separation",
+            input_tokens=1000,
+            output_tokens=500,
+            provider_request_id=f"msg_sep_{uuid.uuid4()}",
+            usage_origin="test",
         )
         await db_session.commit()
-        assert success is True
 
-        await db_session.refresh(rec)
-        assert rec.actual_cost == Decimal("0.220000")
-        assert rec.cost_status == CostStatus.RECONCILED.value
+        try:
+            # Production metrics still strictly 0
+            prod_overview_after = await AIUsageService.get_overview_metrics(db_session, origin="production")
+            assert prod_overview_after["total_requests"] == 0
+            assert prod_overview_after["total_spend"] == 0.0
+
+            # Test metrics include the test record
+            test_overview = await AIUsageService.get_overview_metrics(db_session, origin="test")
+            assert test_overview["total_requests"] >= 1
+            assert test_overview["total_spend"] > 0.0
+        finally:
+            await db_session.delete(test_rec)
+            await db_session.commit()
 
 
 @pytest.mark.asyncio
