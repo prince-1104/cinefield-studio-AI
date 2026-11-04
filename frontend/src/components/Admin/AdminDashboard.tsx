@@ -922,7 +922,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio, onSele
           Project Detail Drill-Down Modal
           ========================================================================= */}
       {selectedProjectId && (
-        <div className="modal-backdrop" onClick={() => setSelectedProjectId(null)}>
+        <div className="admin-modal-backdrop" onClick={() => setSelectedProjectId(null)}>
           <div className="admin-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="admin-modal-header">
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -1002,7 +1002,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio, onSele
           AI Usage & Generated Content Inspector Modal
           ========================================================================= */}
       {selectedRecordId && (
-        <div className="modal-backdrop" onClick={() => setSelectedRecordId(null)}>
+        <div className="admin-modal-backdrop" onClick={() => setSelectedRecordId(null)}>
           <div
             className="admin-modal-content"
             style={{ maxWidth: "860px", width: "95%", maxHeight: "90vh" }}
@@ -1556,7 +1556,7 @@ export const AdminDashboard: FC<AdminDashboardProps> = ({ onBackToStudio, onSele
       )}
 
       {reconcileModalOpen && (
-        <div className="modal-backdrop" onClick={() => setReconcileModalOpen(false)}>
+        <div className="admin-modal-backdrop" onClick={() => setReconcileModalOpen(false)}>
           <div className="admin-modal-content" style={{ maxWidth: "500px" }} onClick={(e) => e.stopPropagation()}>
             <div className="admin-modal-header">
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
