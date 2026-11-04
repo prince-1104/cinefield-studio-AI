@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine, async_session_factory
-from app.routers import admin, ai_creative, artifacts, events, models, projects, timeline
+from app.routers import admin, ai_creative, artifacts, cancellation, events, models, projects, timeline
 from app.services.ai_usage_service import seed_default_pricing
 from app.services.model_registry import model_registry
 
@@ -53,6 +53,7 @@ def create_app() -> FastAPI:
     application.include_router(ai_creative.router)
     application.include_router(admin.router)
     application.include_router(models.router)
+    application.include_router(cancellation.router)
 
     @application.get("/api/health")
     async def health() -> dict:

@@ -47,6 +47,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class JobCancelledException(Exception):
+    """Raised when a background job is cancelled by user request."""
+
+
 class JobRunner:
     """Manages claiming, recovering, and dispatching background jobs."""
 
@@ -75,6 +79,28 @@ class JobRunner:
         self.poll_interval = poll_interval_seconds
         self.max_concurrent_jobs = max_concurrent_jobs or settings.MAX_CONCURRENT_JOBS
         self.running = False
+
+    async def _is_job_cancelled(self, job_id: uuid.UUID) -> bool:
+        """Check if a job has been flagged as CANCEL_REQUESTED or CANCELLED."""
+        try:
+            async with async_session_factory() as session:
+                res = await session.execute(select(Job.status).where(Job.id == job_id))
+                job_status = res.scalar_one_or_none()
+                return job_status in (JobStatus.CANCEL_REQUESTED, JobStatus.CANCELLED)
+        except Exception as e:
+            logger.warning(f"Error checking cancellation status for job {job_id}: {e}")
+            return False
+
+    async def _is_shot_cancelled(self, shot_id: uuid.UUID) -> bool:
+        """Check if a shot has been flagged as CANCEL_REQUESTED or CANCELLED."""
+        try:
+            async with async_session_factory() as session:
+                res = await session.execute(select(Shot.status).where(Shot.id == shot_id))
+                shot_status = res.scalar_one_or_none()
+                return shot_status in (ShotStatus.CANCEL_REQUESTED, ShotStatus.CANCELLED)
+        except Exception as e:
+            logger.warning(f"Error checking cancellation status for shot {shot_id}: {e}")
+            return False
 
     async def recover_abandoned_jobs(self) -> int:
         """Find and recover jobs left in RUNNING status by a terminated or crashed worker.
@@ -275,6 +301,15 @@ class JobRunner:
                 f"Processing job {job.id} (type={job.job_type.value}, project={project.id})"
             )
 
+            if job.status in (JobStatus.CANCEL_REQUESTED, JobStatus.CANCELLED):
+                logger.info(f"Job {job.id} was cancelled before execution. Setting status to CANCELLED.")
+                job.status = JobStatus.CANCELLED
+                job.completed_at = datetime.now(timezone.utc)
+                job.error_message = "Cancelled by user before execution"
+                update_project_progress(project)
+                await session.commit()
+                return
+
             try:
                 if job.job_type == JobType.PLAN_SCRIPT:
                     await self._handle_plan_script(session, job, project, payload)
@@ -293,6 +328,45 @@ class JobRunner:
                 update_project_progress(project)
                 await session.commit()
                 logger.info(f"Successfully finished job {job.id} ({job.job_type.value})")
+
+            except JobCancelledException as exc:
+                logger.info(f"Job {job.id} execution aborted cleanly due to cancellation: {exc}")
+                await session.rollback()
+                async with async_session_factory() as cancel_session:
+                    c_job = (
+                        await cancel_session.execute(
+                            select(Job)
+                            .where(Job.id == claimed_job_id)
+                            .options(selectinload(Job.project).selectinload(Project.shots))
+                        )
+                    ).scalar_one_or_none()
+                    if c_job:
+                        c_job.status = JobStatus.CANCELLED
+                        c_job.completed_at = datetime.now(timezone.utc)
+                        c_job.error_message = str(exc)
+
+                        if c_job.job_type == JobType.GENERATE_VIDEO and "shot_id" in payload:
+                            try:
+                                shot_id = uuid.UUID(payload["shot_id"])
+                                for s in c_job.project.shots:
+                                    if s.id == shot_id and s.status != ShotStatus.DONE:
+                                        s.status = ShotStatus.CANCELLED
+                                        s.completed_at = datetime.now(timezone.utc)
+                                        s.error_message = str(exc)
+                                        break
+                            except Exception as parse_err:
+                                logger.warning(f"Failed to update shot status on cancellation: {parse_err}")
+                        elif c_job.job_type == JobType.PLAN_SCRIPT:
+                            if not c_job.project.shots:
+                                c_job.project.stage = ProjectStage.BRIEF
+                                c_job.project.current_stage_label = "Ready to generate storyboard"
+                        elif c_job.job_type == JobType.ASSEMBLE:
+                            c_job.project.stage = ProjectStage.VIDEOS
+                            c_job.project.current_stage_label = "Assembly cancelled"
+
+                        update_project_progress(c_job.project)
+                        await cancel_session.commit()
+                return
 
             except Exception as exc:
                 logger.error(
@@ -367,9 +441,14 @@ class JobRunner:
         if "aspect_ratio" in sig.parameters:
             plan_kwargs["aspect_ratio"] = aspect_ratio
 
+        if await self._is_job_cancelled(job.id):
+            raise JobCancelledException("Storyboard planning cancelled by user before AI planner execution.")
+
         try:
             storyboard = await active_planner.plan_storyboard(**plan_kwargs)
         except Exception as e:
+            if await self._is_job_cancelled(job.id):
+                raise JobCancelledException("Storyboard planning cancelled by user during execution.")
             if active_planner != self.planner:
                 logger.warning(
                     f"Active planner {planner_type} failed ({e}), falling back to default planner"
@@ -377,6 +456,10 @@ class JobRunner:
                 storyboard = await self.planner.plan_storyboard(**plan_kwargs)
             else:
                 raise
+
+        if await self._is_job_cancelled(job.id):
+            logger.info(f"Job {job.id} was cancelled while planner was executing; discarding generated storyboard.")
+            raise JobCancelledException("Storyboard planning cancelled; generated script discarded.")
 
         project.script = storyboard.script_summary
         project.target_duration = target_dur
@@ -466,6 +549,10 @@ class JobRunner:
 
         dur = int(round(shot.target_duration)) if shot.target_duration > 0 else 5
 
+        # Check cancellation before proceeding
+        if await self._is_job_cancelled(job.id) or await self._is_shot_cancelled(shot.id):
+            raise JobCancelledException(f"Shot #{shot.shot_number} generation cancelled before synthesis.")
+
         # If a custom VideoGenerationProvider was injected (e.g. in unit tests), delegate directly to it
         if self._custom_video_generator is not None:
             shot.status = ShotStatus.SUBMITTED
@@ -483,11 +570,18 @@ class JobRunner:
                 duration_seconds=dur,
                 aspect_ratio=project.aspect_ratio,
             )
+
+            if await self._is_job_cancelled(job.id) or await self._is_shot_cancelled(shot.id):
+                raise JobCancelledException(f"Shot #{shot.shot_number} generation cancelled after custom synthesis.")
         else:
             # Multi-provider architecture (Seedance, Gemini, etc.)
             provider, model_info = provider_registry.get_provider_for_model(model_name)
             shot.provider = provider.provider_id
             shot.model = model_info.id
+
+            # Check cancellation before remote API submission
+            if await self._is_job_cancelled(job.id) or await self._is_shot_cancelled(shot.id):
+                raise JobCancelledException(f"Shot #{shot.shot_number} generation cancelled before provider submission.")
 
             # Step 1: Submit async task if not yet submitted
             if not shot.provider_job_id:
@@ -516,6 +610,39 @@ class JobRunner:
             elapsed = 0.0
             status_resp = None
             while elapsed < settings.VIDEO_GENERATION_TIMEOUT:
+                # Check for cancellation on each poll iteration
+                if await self._is_job_cancelled(job.id) or await self._is_shot_cancelled(shot.id):
+                    logger.info(f"Cancellation requested for shot #{shot.shot_number} during polling loop.")
+                    if shot.provider_job_id:
+                        try:
+                            cancel_resp = await provider.cancel_generation(shot.provider_job_id)
+                            logger.info(f"Provider cancel generation result for task {shot.provider_job_id}: {cancel_resp}")
+                        except Exception as prov_err:
+                            logger.warning(f"Error calling provider cancel_generation: {prov_err}")
+
+                        # Record cancelled usage in financial ledger
+                        try:
+                            from app.services.ai_usage_service import AIUsageService
+                            is_retry = (shot.retry_count > 0) or (job.attempt > 1)
+                            await AIUsageService.record_seedance_usage(
+                                session=session,
+                                model=shot.model or model_name,
+                                operation="video_retry" if is_retry else "video_generation",
+                                duration_seconds=dur,
+                                provider_task_id=shot.provider_job_id,
+                                project_id=project.id,
+                                shot_id=shot.id,
+                                job_id=job.id,
+                                request_status="CANCELLED",
+                                error_code="USER_CANCELLED",
+                                error_message="Generation cancelled by user while in progress",
+                            )
+                            await session.flush()
+                        except Exception as usage_err:
+                            logger.warning(f"Failed to record cancelled Seedance usage: {usage_err}")
+
+                    raise JobCancelledException(f"Shot #{shot.shot_number} cancelled by user during remote generation.")
+
                 status_resp = await provider.get_generation_status(shot.provider_job_id)
                 shot.provider_status = status_resp.status
 
@@ -565,6 +692,9 @@ class JobRunner:
                 )
 
             # Step 3: Download video
+            if await self._is_job_cancelled(job.id) or await self._is_shot_cancelled(shot.id):
+                raise JobCancelledException(f"Shot #{shot.shot_number} cancelled before video download.")
+
             shot.status = ShotStatus.DOWNLOADING
             update_project_progress(project)
             await session.flush()
@@ -576,6 +706,9 @@ class JobRunner:
             )
 
         # Step 4: Validate stream with ffprobe
+        if await self._is_job_cancelled(job.id) or await self._is_shot_cancelled(shot.id):
+            raise JobCancelledException(f"Shot #{shot.shot_number} cancelled before stream validation.")
+
         shot.status = ShotStatus.VALIDATING
         await session.flush()
 
@@ -690,6 +823,9 @@ class JobRunner:
         payload: dict[str, Any],
     ) -> None:
         """Render N clips, narration, background music, captions, brand logo, and CTA into finished MP4."""
+        if await self._is_job_cancelled(job.id):
+            raise JobCancelledException("Assembly cancelled by user before rendering started.")
+
         timeline_edit_id_str = payload.get("timeline_edit_id")
         if timeline_edit_id_str:
             from app.models.timeline_edit import TimelineEdit
@@ -714,10 +850,20 @@ class JobRunner:
             project.progress_percent = 75.0
             await session.flush()
 
-            rendered_path = await self.media_renderer.render_timeline(
-                timeline_data=edit.timeline_data,
-                output_path=final_path,
-            )
+            try:
+                rendered_path = await self.media_renderer.render_timeline(
+                    timeline_data=edit.timeline_data,
+                    output_path=final_path,
+                )
+            except Exception:
+                if await self._is_job_cancelled(job.id):
+                    await self.media_renderer.cancel_render(final_path)
+                    raise JobCancelledException("Timeline assembly cancelled by user during FFmpeg render.")
+                raise
+
+            if await self._is_job_cancelled(job.id):
+                await self.media_renderer.cancel_render(final_path)
+                raise JobCancelledException("Timeline assembly cancelled by user.")
 
             metadata = await inspect_rendered_video(rendered_path)
             edit.rendered_video_path = rendered_path
@@ -775,17 +921,27 @@ class JobRunner:
         update_project_progress(project)
         await session.flush()
 
-        rendered_path = await self.media_renderer.render_advertisement(
-            clip_paths=clip_paths,
-            narration_path=project.narration_path,
-            output_path=final_path,
-            music_path=project.music_path,
-            logo_path=project.logo_path,
-            cta_text=project.cta,
-            captions=captions,
-            aspect_ratio=project.aspect_ratio,
-            target_duration=project.target_duration,
-        )
+        try:
+            rendered_path = await self.media_renderer.render_advertisement(
+                clip_paths=clip_paths,
+                narration_path=project.narration_path,
+                output_path=final_path,
+                music_path=project.music_path,
+                logo_path=project.logo_path,
+                cta_text=project.cta,
+                captions=captions,
+                aspect_ratio=project.aspect_ratio,
+                target_duration=project.target_duration,
+            )
+        except Exception:
+            if await self._is_job_cancelled(job.id):
+                await self.media_renderer.cancel_render(final_path)
+                raise JobCancelledException("Assembly cancelled by user during FFmpeg render.")
+            raise
+
+        if await self._is_job_cancelled(job.id):
+            await self.media_renderer.cancel_render(final_path)
+            raise JobCancelledException("Assembly cancelled by user.")
 
         # Inspect and validate the final rendered MP4 via ffprobe
         metadata = await inspect_rendered_video(rendered_path)

@@ -20,6 +20,9 @@ import {
   ProjectCostMetric,
   ProjectDetailMetrics,
   PaginatedUsage,
+  ProjectCancellationResponse,
+  ShotCancellationResponse,
+  JobCancellationResponse,
 } from "../types";
 
 const api = axios.create({
@@ -378,6 +381,43 @@ export async function reconcileBilling(
   );
   return res.data;
 }
+
+// ---------------------------------------------------------------------------
+// Cancellation APIs
+// ---------------------------------------------------------------------------
+
+export async function cancelProjectGeneration(
+  projectId: string
+): Promise<ProjectCancellationResponse> {
+  const res = await api.post<ProjectCancellationResponse>(
+    `/projects/${projectId}/cancel-generation`
+  );
+  return res.data;
+}
+
+export async function cancelJob(
+  jobId: string
+): Promise<JobCancellationResponse> {
+  const res = await api.post<JobCancellationResponse>(`/jobs/${jobId}/cancel`);
+  return res.data;
+}
+
+export async function cancelShotGeneration(
+  shotId: string,
+  projectId?: string
+): Promise<ShotCancellationResponse> {
+  if (projectId) {
+    const res = await api.post<ShotCancellationResponse>(
+      `/projects/${projectId}/shots/${shotId}/cancel-generation`
+    );
+    return res.data;
+  }
+  const res = await api.post<ShotCancellationResponse>(
+    `/shots/${shotId}/cancel-generation`
+  );
+  return res.data;
+}
+
 
 
 

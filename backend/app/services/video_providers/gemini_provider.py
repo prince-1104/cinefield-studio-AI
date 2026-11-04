@@ -7,6 +7,7 @@ from typing import Any
 from app.config import settings
 from app.services.video_providers.base import (
     BaseVideoProvider,
+    CancellationResponse,
     GenerationStatusResponse,
     GenerationTaskResponse,
     VideoModelInfo,
@@ -98,5 +99,15 @@ class GeminiVideoProvider(BaseVideoProvider):
             reference_image_path=metadata.get("reference_image_path"),
             duration_seconds=metadata.get("duration", 5),
             aspect_ratio=metadata.get("aspect_ratio", "16:9"),
+        )
+
+    async def cancel_generation(self, task_id: str) -> CancellationResponse:
+        logger.info(f"Cancellation requested for Gemini task {task_id}. Halting local processing.")
+        return CancellationResponse(
+            task_id=task_id,
+            provider="gemini",
+            supported=False,
+            cancelled=False,
+            message="Google Gemini video generation does not provide a remote asynchronous cancel API. Local processing has been halted.",
         )
 

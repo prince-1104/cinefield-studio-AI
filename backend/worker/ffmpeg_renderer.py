@@ -116,6 +116,25 @@ class FFmpegMediaRenderer(MediaRenderer):
     def __init__(self, ffmpeg_bin: str = "ffmpeg") -> None:
         self.ffmpeg_bin = ffmpeg_bin
         self.font_path = find_system_font()
+        self._active_processes: dict[str, asyncio.subprocess.Process] = {}
+
+    async def cancel_render(self, output_path: str) -> bool:
+        """Terminate active FFmpeg process for output_path and delete temporary files."""
+        dest = Path(output_path).resolve()
+        temp_dest = dest.with_suffix(".tmp.mp4")
+        key = str(temp_dest)
+        proc = self._active_processes.get(key)
+        if proc and proc.returncode is None:
+            logger.info(f"Terminating active FFmpeg process for {output_path} (pid={proc.pid})")
+            try:
+                proc.terminate()
+            except ProcessLookupError:
+                pass
+            temp_dest.unlink(missing_ok=True)
+            self._active_processes.pop(key, None)
+            return True
+        temp_dest.unlink(missing_ok=True)
+        return False
 
     async def render_advertisement(
         self,
@@ -314,7 +333,11 @@ class FFmpegMediaRenderer(MediaRenderer):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        self._active_processes[str(temp_dest)] = proc
+        try:
+            stdout, stderr = await proc.communicate()
+        finally:
+            self._active_processes.pop(str(temp_dest), None)
 
         if proc.returncode != 0:
             temp_dest.unlink(missing_ok=True)
@@ -550,7 +573,11 @@ class FFmpegMediaRenderer(MediaRenderer):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        self._active_processes[str(temp_dest)] = proc
+        try:
+            stdout, stderr = await proc.communicate()
+        finally:
+            self._active_processes.pop(str(temp_dest), None)
 
         if proc.returncode != 0:
             temp_dest.unlink(missing_ok=True)

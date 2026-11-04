@@ -19,13 +19,21 @@ export type ShotStatus =
   | "GENERATING"
   | "DOWNLOADING"
   | "VALIDATING"
+  | "CANCEL_REQUESTED"
+  | "CANCELLED"
   | "COMPLETED"
   | "DONE"
   | "FAILED"
-  | "RETRYING"
-  | "CANCELLED";
+  | "RETRYING";
 
-export type JobStatus = "QUEUED" | "RUNNING" | "DONE" | "FAILED";
+export type JobStatus =
+  | "QUEUED"
+  | "CLAIMED"
+  | "RUNNING"
+  | "CANCEL_REQUESTED"
+  | "CANCELLED"
+  | "DONE"
+  | "FAILED";
 
 export type JobType =
   | "PLAN_SCRIPT"
@@ -458,6 +466,34 @@ export interface PaginatedUsage {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface ProjectCancellationResponse {
+  project_id: string;
+  cancelled_jobs_count: number;
+  active_cancel_requested_count: number;
+  preserved_shots_count: number;
+  cancelled_shots_count: number;
+  provider_notes: string[];
+  message: string;
+}
+
+export interface ShotCancellationResponse {
+  shot_id: string;
+  project_id: string;
+  shot_number: number;
+  status: string;
+  previous_status?: string | null;
+  provider_task_id?: string | null;
+  provider_cancellation_supported: boolean;
+  message: string;
+}
+
+export interface JobCancellationResponse {
+  job_id: string;
+  status: string;
+  previous_status?: string | null;
+  message: string;
 }
 
 

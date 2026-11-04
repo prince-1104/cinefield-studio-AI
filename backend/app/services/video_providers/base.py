@@ -44,6 +44,17 @@ class GenerationStatusResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class CancellationResponse(BaseModel):
+    """Response returned upon requesting cancellation of a generation task."""
+
+    task_id: str | None = None
+    provider: str
+    supported: bool = False
+    cancelled: bool = False
+    message: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class BaseVideoProvider(ABC):
     """Abstract base class for all AI video generation providers."""
 
@@ -94,4 +105,14 @@ class BaseVideoProvider(ABC):
     ) -> str:
         """Download or fetch the generated video stream and save it to output_path."""
         pass
+
+    async def cancel_generation(self, task_id: str) -> CancellationResponse:
+        """Cancel an ongoing generation task on the provider if supported."""
+        return CancellationResponse(
+            task_id=task_id,
+            provider=self.provider_id,
+            supported=False,
+            cancelled=False,
+            message=f"Provider {self.name} does not support remote task cancellation. Local polling and processing will be halted.",
+        )
 

@@ -108,3 +108,4 @@ class GeminiProvider(BaseProvider):
             status="DONE",
             metadata={"duration": duration_seconds, "ratio": aspect_ratio},
         )
+

@@ -110,3 +110,4 @@ class ImageProvider(BaseProvider):
             dest.write_bytes(img_resp.content)
 
         return str(dest)
+

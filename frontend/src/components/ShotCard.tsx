@@ -15,6 +15,7 @@ import {
   Download,
   Cpu,
   Play,
+  Square,
 } from "lucide-react";
 
 interface ShotCardProps {
@@ -22,7 +23,9 @@ interface ShotCardProps {
   onRetry?: (shotId: string) => void;
   onGenerateShot?: (shotId: string, prompt?: string) => void;
   onPromptUpdated?: (shotId: string, newPrompt: string) => void;
+  onCancelShot?: (shotId: string, shotNumber: number) => void;
   isRetrying?: boolean;
+  isCancelling?: boolean;
 }
 
 export const ShotCard: FC<ShotCardProps> = ({
@@ -30,7 +33,9 @@ export const ShotCard: FC<ShotCardProps> = ({
   onRetry,
   onGenerateShot,
   onPromptUpdated,
+  onCancelShot,
   isRetrying,
+  isCancelling,
 }) => {
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
   const [promptText, setPromptText] = useState(shot.visual_prompt);
@@ -47,6 +52,10 @@ export const ShotCard: FC<ShotCardProps> = ({
       case "DOWNLOADING":
       case "VALIDATING":
         return "generating";
+      case "CANCEL_REQUESTED":
+        return "retrying";
+      case "CANCELLED":
+        return "failed";
       case "RETRYING":
         return "retrying";
       case "FAILED":
@@ -75,6 +84,10 @@ export const ShotCard: FC<ShotCardProps> = ({
         return "Downloading";
       case "VALIDATING":
         return "Validating";
+      case "CANCEL_REQUESTED":
+        return "Cancelling...";
+      case "CANCELLED":
+        return "Cancelled";
       case "RETRYING":
         return "Retrying";
       case "FAILED":
@@ -368,8 +381,32 @@ export const ShotCard: FC<ShotCardProps> = ({
             </button>
           )}
 
-          {/* Regenerate button if failed or done */}
-          {onRetry && (shot.status === "FAILED" || shot.status === "DONE") && (
+          {/* Stop Shot button if generating or queued */}
+          {onCancelShot && ["CLAIMED", "SUBMITTED", "GENERATING", "DOWNLOADING", "VALIDATING", "QUEUED"].includes(shot.status) && (
+            <button
+              type="button"
+              className="btn-secondary-studio"
+              style={{
+                padding: "0.35rem 0.65rem",
+                fontSize: "0.75rem",
+                color: "#f87171",
+                borderColor: "rgba(239, 68, 68, 0.4)",
+                backgroundColor: "rgba(239, 68, 68, 0.08)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.3rem",
+              }}
+              onClick={() => onCancelShot(shot.id, shot.shot_number)}
+              disabled={isCancelling}
+              title={`Cancel shot #${shot.shot_number} generation`}
+            >
+              <Square size={11} style={{ fill: "#f87171" }} />
+              <span>{isCancelling ? "Cancelling..." : "Stop Shot"}</span>
+            </button>
+          )}
+
+          {/* Regenerate button if failed, cancelled, or done */}
+          {onRetry && (shot.status === "FAILED" || shot.status === "CANCELLED" || shot.status === "DONE") && (
             <button
               type="button"
               className="btn-secondary-studio"
@@ -378,7 +415,7 @@ export const ShotCard: FC<ShotCardProps> = ({
               disabled={isRetrying}
             >
               <RotateCw size={12} className={isRetrying ? "spin" : ""} />
-              <span>{isRetrying ? "Generating..." : "Regenerate Clip"}</span>
+              <span>{isRetrying ? "Generating..." : shot.status === "CANCELLED" ? "Retry Shot" : "Regenerate Clip"}</span>
             </button>
           )}
         </div>

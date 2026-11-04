@@ -35,6 +35,7 @@ async def stream_project_events(
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
         last_signature: str | None = None
         last_shot_states: dict[str, str] = {}
+        last_job_states: dict[str, str] = {}
         last_stage: str | None = None
 
         while True:
@@ -106,6 +107,30 @@ async def stream_project_events(
                             }
 
                         last_shot_states[shot_key] = shot_status_str
+
+                    # Check for job state transitions (e.g. CANCEL_REQUESTED, CANCELLED)
+                    for job in detail.jobs:
+                        job_key = str(job.id)
+                        job_status_str = str(job.status)
+                        prev_job_status = last_job_states.get(job_key)
+
+                        if prev_job_status is not None and prev_job_status != job_status_str:
+                            job_event = {
+                                "event_type": "JOB_UPDATE",
+                                "project_id": str(project_id),
+                                "job_id": job_key,
+                                "job_type": str(job.job_type),
+                                "status": job_status_str,
+                                "previous_status": prev_job_status,
+                                "error": job.error_message,
+                                "timestamp": now_iso,
+                            }
+                            yield {
+                                "event": "generation_progress",
+                                "data": json.dumps(job_event),
+                            }
+
+                        last_job_states[job_key] = job_status_str
 
                     # Build high-fidelity state signature tracking shot progress & pipeline stages
                     signature = (

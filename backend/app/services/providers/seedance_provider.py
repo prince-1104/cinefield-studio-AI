@@ -320,3 +320,4 @@ class SeedanceProvider(BaseProvider):
             out_file.write_bytes(resp.content)
 
         return str(out_file)
+

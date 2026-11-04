@@ -74,6 +74,17 @@ class GenerationStatusResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class CancellationResponse(BaseModel):
+    """Response returned upon requesting cancellation of a generation task."""
+
+    task_id: str | None = None
+    provider: str
+    supported: bool = False
+    cancelled: bool = False
+    message: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class BaseProvider(ABC):
     """Abstract base class for all AI providers in Pexyl Studio."""
 
@@ -129,6 +140,16 @@ class BaseProvider(ABC):
     ) -> str:
         raise NotImplementedError(f"Video retrieval is not supported by {self.name}")
 
+    async def cancel_generation(self, task_id: str) -> CancellationResponse:
+        """Cancel an ongoing generation task on the provider if supported."""
+        return CancellationResponse(
+            task_id=task_id,
+            provider=self.provider_id,
+            supported=False,
+            cancelled=False,
+            message=f"Provider {self.name} does not support remote task cancellation. Local polling and processing will be halted.",
+        )
+
     async def generate_text(
         self,
         prompt: str,
@@ -157,3 +178,4 @@ class BaseProvider(ABC):
         aspect_ratio: str = "16:9",
     ) -> str:
         raise NotImplementedError(f"Image generation is not supported by {self.name}")
+

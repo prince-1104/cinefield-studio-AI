@@ -9,6 +9,8 @@ import {
   selectProjectModel,
   generateShotVideo,
   approveStoryboard,
+  cancelProjectGeneration,
+  cancelShotGeneration,
 } from "../api/client";
 import {
   CheckCircle2,
@@ -26,6 +28,8 @@ import {
   ChevronUp,
   Clock,
   Film,
+  Square,
+  AlertTriangle,
 } from "lucide-react";
 
 interface GenerationStepProps {
@@ -52,6 +56,11 @@ export const GenerationStep: FC<GenerationStepProps> = ({
   );
   const [switchingModel, setSwitchingModel] = useState(false);
   const [eventsDrawerOpen, setEventsDrawerOpen] = useState(false);
+  const [showCancelProjectModal, setShowCancelProjectModal] = useState(false);
+  const [cancellingProject, setCancellingProject] = useState(false);
+  const [shotToCancel, setShotToCancel] = useState<{ id: string; shotNumber: number } | null>(null);
+  const [cancellingShotId, setCancellingShotId] = useState<string | null>(null);
+  const [cancellationAlert, setCancellationAlert] = useState<string | null>(null);
 
   useEffect(() => {
     getVideoModels()
@@ -105,6 +114,7 @@ export const GenerationStep: FC<GenerationStepProps> = ({
   const queuedShotsCount = project.shots ? project.shots.filter((s) => ["PENDING", "QUEUED"].includes(s.status)).length : 0;
   const failedShotsCount = project.shots ? project.shots.filter((s) => s.status === "FAILED").length : 0;
   const retryingShotsCount = project.shots ? project.shots.filter((s) => s.status === "RETRYING").length : 0;
+  const cancelledShotsCount = project.shots ? project.shots.filter((s) => s.status === "CANCELLED" || s.status === "CANCEL_REQUESTED").length : 0;
 
   const allShotsDone = totalShots > 0 && doneShotsCount === totalShots;
   const narrationReady = Boolean(project.narration_path);
@@ -118,6 +128,8 @@ export const GenerationStep: FC<GenerationStepProps> = ({
   const isAssembled = project.stage === "ASSEMBLED" && Boolean(project.final_video_path);
   const isAssemblyFailed = project.stage === "ASSEMBLY_FAILED";
   const isReadyToAssemble = allShotsDone && narrationReady && !isAssembled && !isAssembling;
+
+  const isGenerationActive = generatingShotsCount > 0 || queuedShotsCount > 0 || isAssembling || isAssemblyQueued;
 
   const stageLabel = project.current_stage_label || "Synthesizing Production Components";
 
@@ -180,6 +192,36 @@ export const GenerationStep: FC<GenerationStepProps> = ({
     }
   };
 
+  const handleConfirmCancelProject = async () => {
+    setCancellingProject(true);
+    try {
+      const res = await cancelProjectGeneration(project.id);
+      setShowCancelProjectModal(false);
+      setCancellationAlert(res.message);
+    } catch (err: any) {
+      console.error("Failed to cancel project generation:", err);
+      onError(err.response?.data?.detail || err.message || "Failed to cancel generation");
+    } finally {
+      setCancellingProject(false);
+    }
+  };
+
+  const handleConfirmCancelShot = async () => {
+    if (!shotToCancel) return;
+    const { id, shotNumber } = shotToCancel;
+    setCancellingShotId(id);
+    try {
+      const res = await cancelShotGeneration(id, project.id);
+      setCancellationAlert(res.message);
+      setShotToCancel(null);
+    } catch (err: any) {
+      console.error(`Failed to cancel shot #${shotNumber}:`, err);
+      onError(err.response?.data?.detail || err.message || `Failed to cancel shot #${shotNumber}`);
+    } finally {
+      setCancellingShotId(null);
+    }
+  };
+
   return (
     <div className="generation-workspace">
       {/* Workspace Header */}
@@ -230,6 +272,30 @@ export const GenerationStep: FC<GenerationStepProps> = ({
               </button>
             )}
 
+            {/* Stop Generation button */}
+            {isGenerationActive && (
+              <button
+                type="button"
+                className="btn-secondary-studio"
+                onClick={() => setShowCancelProjectModal(true)}
+                disabled={cancellingProject}
+                style={{
+                  borderColor: "rgba(239, 68, 68, 0.5)",
+                  backgroundColor: "rgba(239, 68, 68, 0.12)",
+                  color: "#f87171",
+                  padding: "0.55rem 1rem",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                }}
+              >
+                <Square size={13} style={{ fill: "#f87171" }} />
+                <span>{cancellingProject ? "Stopping..." : "Stop Generation"}</span>
+              </button>
+            )}
+
             {/* Assemble / Ready CTA */}
             {isAssembled ? (
               <button
@@ -266,6 +332,37 @@ export const GenerationStep: FC<GenerationStepProps> = ({
           {stageLabel}. {selectedModel.name} synthesizes clips with multimodal continuity while OpenAI generates synchronized narration.
         </p>
       </div>
+
+      {/* Cancellation Notice Banner */}
+      {cancellationAlert && (
+        <div
+          style={{
+            marginBottom: "1.25rem",
+            padding: "0.75rem 1.25rem",
+            backgroundColor: "rgba(239, 68, 68, 0.1)",
+            border: "1px solid rgba(239, 68, 68, 0.3)",
+            borderRadius: "8px",
+            color: "#fca5a5",
+            fontSize: "0.82rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "1rem",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <AlertTriangle size={16} style={{ color: "#ef4444", flexShrink: 0 }} />
+            <span>{cancellationAlert}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCancellationAlert(null)}
+            style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "0.85rem" }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* =========================================================================
           Real-Time Video Generation & Assembly Breakdown Cards
@@ -308,6 +405,17 @@ export const GenerationStep: FC<GenerationStepProps> = ({
             <span>Failed Shots</span>
           </div>
         </div>
+
+        {/* Cancelled Shots */}
+        {cancelledShotsCount > 0 && (
+          <div className="gen-stat-box failed" style={{ borderColor: "rgba(239, 68, 68, 0.4)" }}>
+            <div className="gen-stat-number" style={{ color: "#f87171" }}>{cancelledShotsCount}</div>
+            <div className="gen-stat-title">
+              <Square size={13} style={{ fill: "#f87171" }} />
+              <span>Cancelled</span>
+            </div>
+          </div>
+        )}
 
         {/* Assembly Status Box */}
         <div className="gen-stat-box assembly">
@@ -548,7 +656,9 @@ export const GenerationStep: FC<GenerationStepProps> = ({
             shot={shot}
             onRetry={handleRetryShot}
             onGenerateShot={handleGenerateSingleShot}
+            onCancelShot={(shotId, shotNumber) => setShotToCancel({ id: shotId, shotNumber })}
             isRetrying={retryingShotId === shot.id}
+            isCancelling={cancellingShotId === shot.id}
           />
         ))}
       </div>
@@ -660,6 +770,246 @@ export const GenerationStep: FC<GenerationStepProps> = ({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Project Cancellation Confirmation Dialog */}
+      {showCancelProjectModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "1rem",
+          }}
+          onClick={() => !cancellingProject && setShowCancelProjectModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "var(--bg-surface-elevated, #18181b)",
+              border: "1px solid rgba(239, 68, 68, 0.4)",
+              borderRadius: "12px",
+              maxWidth: "500px",
+              width: "100%",
+              padding: "1.75rem",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
+              <div
+                style={{
+                  width: "42px",
+                  height: "42px",
+                  borderRadius: "50%",
+                  backgroundColor: "rgba(239, 68, 68, 0.15)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#ef4444",
+                  flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "#ffffff" }}>
+                  Stop Project Video Generation?
+                </h3>
+                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                  Project: {project.product_name}
+                </span>
+              </div>
+            </div>
+
+            <p style={{ color: "#e2e8f0", fontSize: "0.85rem", lineHeight: 1.5, marginBottom: "1rem" }}>
+              Are you sure you want to stop active video generation for this project?
+            </p>
+
+            <ul
+              style={{
+                backgroundColor: "rgba(245, 158, 11, 0.08)",
+                border: "1px solid rgba(245, 158, 11, 0.25)",
+                borderRadius: "8px",
+                padding: "0.75rem 1rem 0.75rem 1.75rem",
+                marginBottom: "1.5rem",
+                fontSize: "0.78rem",
+                color: "#fcd34d",
+                lineHeight: 1.45,
+                margin: "0 0 1.5rem 0",
+              }}
+            >
+              <li>Queued video synthesis jobs will be cancelled immediately.</li>
+              <li>Active worker polling and file downloads will be halted.</li>
+              <li><strong>Completed shots and already generated video clips will NOT be deleted</strong> and are preserved.</li>
+              <li>Requests already submitted to external providers may still incur usage costs if remote cancellation is unsupported.</li>
+            </ul>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+              <button
+                type="button"
+                className="btn-secondary-studio"
+                onClick={() => setShowCancelProjectModal(false)}
+                disabled={cancellingProject}
+                style={{ padding: "0.55rem 1rem", fontSize: "0.85rem" }}
+              >
+                Keep Generating
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancelProject}
+                disabled={cancellingProject}
+                style={{
+                  backgroundColor: "#dc2626",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "0.55rem 1.15rem",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  cursor: cancellingProject ? "not-allowed" : "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.45rem",
+                }}
+              >
+                {cancellingProject ? (
+                  <>
+                    <div className="pulse-spinner" style={{ width: "14px", height: "14px", borderWidth: "2px" }} />
+                    <span>Stopping...</span>
+                  </>
+                ) : (
+                  <>
+                    <Square size={13} style={{ fill: "#ffffff" }} />
+                    <span>Confirm & Stop Generation</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Individual Shot Cancellation Confirmation Dialog */}
+      {shotToCancel && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "1rem",
+          }}
+          onClick={() => !cancellingShotId && setShotToCancel(null)}
+        >
+          <div
+            style={{
+              backgroundColor: "var(--bg-surface-elevated, #18181b)",
+              border: "1px solid rgba(239, 68, 68, 0.4)",
+              borderRadius: "12px",
+              maxWidth: "460px",
+              width: "100%",
+              padding: "1.75rem",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
+              <div
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "50%",
+                  backgroundColor: "rgba(239, 68, 68, 0.15)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#ef4444",
+                  flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, color: "#ffffff" }}>
+                  Stop Shot #{shotToCancel.shotNumber}?
+                </h3>
+                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                  Single-Shot Cancellation
+                </span>
+              </div>
+            </div>
+
+            <p style={{ color: "#e2e8f0", fontSize: "0.85rem", lineHeight: 1.5, marginBottom: "1rem" }}>
+              Are you sure you want to stop generating Shot #{shotToCancel.shotNumber}?
+            </p>
+
+            <div
+              style={{
+                backgroundColor: "rgba(245, 158, 11, 0.08)",
+                border: "1px solid rgba(245, 158, 11, 0.25)",
+                borderRadius: "8px",
+                padding: "0.75rem",
+                marginBottom: "1.5rem",
+                fontSize: "0.78rem",
+                color: "#fcd34d",
+                lineHeight: 1.45,
+              }}
+            >
+              Other shots will continue generating normally. You can retry this shot individually at any time or edit its visual prompt.
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+              <button
+                type="button"
+                className="btn-secondary-studio"
+                onClick={() => setShotToCancel(null)}
+                disabled={Boolean(cancellingShotId)}
+                style={{ padding: "0.55rem 1rem", fontSize: "0.85rem" }}
+              >
+                Keep Generating
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancelShot}
+                disabled={Boolean(cancellingShotId)}
+                style={{
+                  backgroundColor: "#dc2626",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "0.55rem 1.15rem",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  cursor: cancellingShotId ? "not-allowed" : "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.45rem",
+                }}
+              >
+                {cancellingShotId ? (
+                  <>
+                    <div className="pulse-spinner" style={{ width: "14px", height: "14px", borderWidth: "2px" }} />
+                    <span>Stopping...</span>
+                  </>
+                ) : (
+                  <>
+                    <Square size={13} style={{ fill: "#ffffff" }} />
+                    <span>Stop Shot #{shotToCancel.shotNumber}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

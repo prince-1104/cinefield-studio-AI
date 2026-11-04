@@ -37,3 +37,4 @@ async def get_model_detail(model_id: str) -> ModelSpec:
             detail=f"Model '{model_id}' is not registered in the dynamic model registry.",
         )
     return spec
+

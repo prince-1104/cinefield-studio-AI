@@ -12,6 +12,7 @@ import httpx
 from app.config import settings
 from app.services.video_providers.base import (
     BaseVideoProvider,
+    CancellationResponse,
     GenerationStatusResponse,
     GenerationTaskResponse,
     VideoModelInfo,
@@ -396,4 +397,20 @@ class SeedanceVideoProvider(BaseVideoProvider):
 
         logger.info(f"Successfully saved Seedance video to {dest} ({dest.stat().st_size} bytes)")
         return str(dest)
+
+    async def cancel_generation(self, task_id: str) -> CancellationResponse:
+        """Cancel Seedance task.
+        
+        BytePlus ModelArk does not provide a remote cancellation endpoint for async
+        video generation tasks. We stop local polling and download to halt local resource
+        consumption and record that upstream provider processing may still occur.
+        """
+        logger.info(f"Requested cancellation for Seedance task {task_id}. Halting local processing.")
+        return CancellationResponse(
+            task_id=task_id,
+            provider="seedance",
+            supported=False,
+            cancelled=False,
+            message="BytePlus ModelArk does not support remote cancellation of submitted tasks. Local polling and clip downloading have been stopped immediately to prevent further processing, but charges may apply if the task is processed by the provider.",
+        )
 

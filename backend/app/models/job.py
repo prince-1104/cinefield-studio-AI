@@ -24,7 +24,10 @@ class JobStatus(str, enum.Enum):
     """Lifecycle states of a background job."""
 
     QUEUED = "QUEUED"
+    CLAIMED = "CLAIMED"
     RUNNING = "RUNNING"
+    CANCEL_REQUESTED = "CANCEL_REQUESTED"
+    CANCELLED = "CANCELLED"
     DONE = "DONE"
     FAILED = "FAILED"
 

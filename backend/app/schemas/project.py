@@ -44,6 +44,28 @@ class ShotGenerationPayload(BaseModel):
     provider: str | None = None
 
 
+class ProjectCancellationResponse(BaseModel):
+    """Structured response after requesting project-level generation cancellation."""
+
+    project_id: uuid.UUID
+    cancelled_jobs_count: int
+    active_cancel_requested_count: int
+    preserved_shots_count: int
+    cancelled_shots_count: int
+    message: str
+
+
+class ShotCancellationResponse(BaseModel):
+    """Structured response after requesting individual shot generation cancellation."""
+
+    shot_id: uuid.UUID
+    project_id: uuid.UUID
+    status: str
+    message: str
+    provider_task_id: str | None = None
+    provider_cancellation_supported: bool = False
+
+
 # ── Response schemas ─────────────────────────────────────────────
 
 class ProjectSummary(BaseModel):

@@ -38,6 +38,10 @@ class MediaRenderer(ABC):
         """
         pass
 
+    async def cancel_render(self, output_path: str) -> bool:
+        """Cancel ongoing rendering and clean up temporary partial files."""
+        return False
+
     @abstractmethod
     async def render_timeline(
         self,
